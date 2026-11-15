@@ -9,7 +9,45 @@ import {
   saveUserLastPlaylist,
 } from "@/lib/profile-store";
 import { enrichTracksWithYouTube } from "@/lib/youtube";
-import type { GeneratedPlaylist } from "@/types/playlist";
+import type {
+  ExcludedTrackRef,
+  GeneratedPlaylist,
+  StoredUserData,
+} from "@/types/playlist";
+
+function collectExcludedRecentTracks(
+  stored: StoredUserData,
+  turns: number
+): ExcludedTrackRef[] {
+  if (turns <= 0) return [];
+
+  const recentPlaylists =
+    stored.playlistHistory.length > 0
+      ? stored.playlistHistory.slice(0, turns).map((h) => h.playlist)
+      : stored.lastPlaylist
+        ? [stored.lastPlaylist]
+        : [];
+
+  const seen = new Set<string>();
+  const excluded: ExcludedTrackRef[] = [];
+
+  for (const pl of recentPlaylists) {
+    for (const track of pl.tracks) {
+      const key = `${track.title.trim().toLowerCase()}::${track.artist.trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      excluded.push({
+        title: track.title,
+        titleRomaji: track.titleRomaji,
+        artist: track.artist,
+        artistRomaji: track.artistRomaji,
+        animeTitle: track.animeTitle,
+      });
+    }
+  }
+
+  return excluded;
+}
 
 const RequestSchema = z.object({
   seeds: z.array(z.string()).default([]),
@@ -29,6 +67,7 @@ const RequestSchema = z.object({
     .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
     .optional()
     .default(3),
+  excludeRecentTurns: z.number().int().min(0).max(10).optional().default(0),
   tasteProfile: z
     .object({
       dna: z.object({
@@ -65,26 +104,33 @@ export async function POST(request: NextRequest) {
 
     const accountKey = await resolveUserAccountKey();
     let effectiveTaste = parsed.data.tasteProfile;
+    const needsStoredData =
+      effectiveTaste === undefined || parsed.data.excludeRecentTurns > 0;
+    const stored = needsStoredData ? await readUserData(accountKey) : null;
 
     // Automatically fall back to server-persisted taste profile if client omitted it
-    if (effectiveTaste === undefined) {
-      const stored = await readUserData(accountKey);
-      if (stored.tasteProfile) {
-        effectiveTaste = {
-          dna: stored.tasteProfile.dna,
-          knownTracks: stored.tasteProfile.knownTracks,
-        };
-      }
+    if (effectiveTaste === undefined && stored?.tasteProfile) {
+      effectiveTaste = {
+        dna: stored.tasteProfile.dna,
+        knownTracks: stored.tasteProfile.knownTracks,
+      };
     }
+
+    const excludedRecentTracks = stored
+      ? collectExcludedRecentTracks(stored, parsed.data.excludeRecentTurns)
+      : [];
 
     const effectivePopularity =
       parsed.data.popularityLevel ?? (parsed.data.includeHiddenGems ? 3 : 2);
 
-    const playlist = await generatePlaylistWithGemini({
-      ...parsed.data,
-      popularityLevel: effectivePopularity,
-      tasteProfile: effectiveTaste ?? null,
-    });
+    const playlist = await generatePlaylistWithGemini(
+      {
+        ...parsed.data,
+        popularityLevel: effectivePopularity,
+        tasteProfile: effectiveTaste ?? null,
+      },
+      { excludedRecentTracks }
+    );
 
     const ytSession = await getValidYouTubeSession();
     const ytAuth = ytSession

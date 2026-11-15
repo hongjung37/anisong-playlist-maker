@@ -336,6 +336,7 @@ export default function HomePage() {
               loading={loading}
               authStatus={authStatus}
               tasteProfile={tasteProfile}
+              playlistHistory={playlistHistory}
               onChangeTasteProfile={setTasteProfile}
               onGenerate={handleGenerate}
             />

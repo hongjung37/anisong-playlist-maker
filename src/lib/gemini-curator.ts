@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import type {
+  ExcludedTrackRef,
   FamiliarityLevel,
   GeneratedPlaylist,
   KnownTrackItem,
@@ -181,6 +182,61 @@ function isTrackInKnownLibrary(
   return false;
 }
 
+function isTrackExcluded(
+  track: {
+    title: string;
+    titleRomaji?: string;
+    artist: string;
+    artistRomaji?: string;
+  },
+  excludedTracks: ExcludedTrackRef[]
+): boolean {
+  if (excludedTracks.length === 0) return false;
+  const trackTitles = [track.title, track.titleRomaji ?? ""]
+    .map(normalizeForCompare)
+    .filter((s) => s.length >= 2);
+  const trackArtists = [track.artist, track.artistRomaji ?? ""]
+    .map(normalizeForCompare)
+    .filter((s) => s.length >= 2);
+
+  for (const ex of excludedTracks) {
+    const exTitles = [ex.title, ex.titleRomaji ?? ""]
+      .map(normalizeForCompare)
+      .filter((s) => s.length >= 2);
+
+    let strongTitleMatch = false;
+    let shortTitleMatch = false;
+
+    for (const tt of trackTitles) {
+      for (const et of exTitles) {
+        if (tt === et) {
+          if (tt.length >= 5) strongTitleMatch = true;
+          else shortTitleMatch = true;
+        } else if (
+          tt.length >= 5 &&
+          et.length >= 5 &&
+          (tt.includes(et) || et.includes(tt))
+        ) {
+          strongTitleMatch = true;
+        }
+      }
+    }
+
+    if (strongTitleMatch) return true;
+    if (!shortTitleMatch) continue;
+
+    const exArtists = [ex.artist, ex.artistRomaji ?? ""]
+      .map(normalizeForCompare)
+      .filter((s) => s.length >= 2);
+    const artistMatch = trackArtists.some((ta) =>
+      exArtists.some((ea) => ta === ea || ta.includes(ea) || ea.includes(ta))
+    );
+    if (artistMatch) return true;
+  }
+
+  return false;
+}
+
 function describeFamiliarity(
   level: FamiliarityLevel | undefined,
   trackCount: number
@@ -270,11 +326,13 @@ function describeEra(era: PlaylistGenerateRequest["era"]): string {
 }
 
 export async function generatePlaylistWithGemini(
-  input: PlaylistGenerateRequest
+  input: PlaylistGenerateRequest,
+  options?: { excludedRecentTracks?: ExcludedTrackRef[] }
 ): Promise<GeneratedPlaylist> {
+  const excludedRecentTracks = options?.excludedRecentTracks ?? [];
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return generateFallbackPlaylist(input);
+    return generateFallbackPlaylist(input, options);
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -289,13 +347,31 @@ export async function generatePlaylistWithGemini(
 4. 트랙 순서에도 신경 쓰세요 (오프닝으로 분위기를 열고, 중간에 감정 변주를 주며, 마지막 트랙으로 여운을 남기는 흐름).
 5. 중복된 곡은 넣지 말고, 요청한 트랙 수에 정확히 맞추세요.
 6. 인지도/대중성(메이저↔마이너 4단계) 지침을 반드시 반영하되, 마이너 단계일수록 존재하지 않는 곡이나 불확실한 제목을 지어내지 말고 실존과 공식 음원명이 확실한 곡만 고르세요.
-7. 선호 장르/스타일(예: 전파송, 기타록, 심포닉 오케스트라, 유로비트, 보컬로이드계 등)이 지정되면 편곡 문법과 사운드 질감이 해당 장르에 정확히 부합하는 곡을 우선 선택하세요.`;
+7. 선호 장르/스타일(예: 전파송, 기타록, 심포닉 오케스트라, 유로비트, 보컬로이드계 등)이 지정되면 편곡 문법과 사운드 질감이 해당 장르에 정확히 부합하는 곡을 우선 선택하세요.
+8. [최근 생성 플레이리스트 중복 제외 목록]이 주어지면 해당 곡들은 직전/최근 생성 셋리에 이미 들어간 곡이므로 이번 셋리에서 반드시 제외하세요.`;
 
   const knownTracks = input.tasteProfile?.knownTracks ?? [];
   const tasteDna = input.tasteProfile?.dna ?? null;
   const familiarityLevel = input.familiarityLevel ?? 3;
   const popularityLevel = resolvePopularityLevel(input);
   const genres = input.genres ?? [];
+  const requestedCount =
+    excludedRecentTracks.length > 0
+      ? Math.min(30, input.trackCount + 3)
+      : input.trackCount;
+
+  const excludedBlock =
+    excludedRecentTracks.length > 0
+      ? `\n[최근 생성 플레이리스트 중복 제외 목록 (총 ${excludedRecentTracks.length}곡 중 최대 120곡 표기 — 절대 중복 선곡 금지)]
+- 아래 곡들은 취향/라이브러리 목록에 들어있더라도 최근 생성한 셋리에 이미 포함되었으므로 이번 셋리에는 절대 넣지 마세요.
+${excludedRecentTracks
+  .slice(0, 120)
+  .map(
+    (ex, i) =>
+      `  ${i + 1}. ${ex.title}${ex.titleRomaji && ex.titleRomaji !== ex.title ? ` (${ex.titleRomaji})` : ""} - ${ex.artist}${ex.animeTitle ? ` [${ex.animeTitle}]` : ""}`
+  )
+  .join("\n")}\n`
+      : "";
 
   const tasteContextBlock = tasteDna
     ? `\n[사용자 취향 DNA 프로파일]
@@ -314,7 +390,11 @@ ${knownTracks
   .join("\n")}\n`
     : "";
 
-  const userPrompt = `다음 조건에 맞는 애니송 셋리(플레이리스트)를 ${input.trackCount}곡으로 큐레이션해 주세요.
+  const userPrompt = `다음 조건에 맞는 애니송 셋리(플레이리스트)를 ${requestedCount}곡으로 큐레이션해 주세요.${
+    requestedCount > input.trackCount
+      ? ` (중복 제외 후 최종 ${input.trackCount}곡 선별용 여유분 포함)`
+      : ""
+  }
 
 - 시드(기준 작품 / 곡 / 아티스트): ${input.seeds.length > 0 ? input.seeds.join(", ") : "지정 없음 (취향 DNA와 분위기 중심으로 자유 선곡)"}
 - 원하는 분위기/무드: ${input.moods.length > 0 ? input.moods.join(", ") : "밸런스 있는 애니송 명곡 흐름"}
@@ -323,8 +403,8 @@ ${knownTracks
 - 시대/연대: ${describeEra(input.era)}
 - 대중성/인지도 (메이저 ↔ 마이너): ${describePopularity(popularityLevel)}
 - 추가 요청 사항: ${input.prompt?.trim() ? input.prompt.trim() : "없음"}
-- 요청 곡 수: ${input.trackCount}곡
-${tasteContextBlock}`;
+- 요청 곡 수: ${requestedCount}곡
+${excludedBlock}${tasteContextBlock}`;
 
   const interaction = await ai.interactions.create({
     model: "gemini-3.8-flash",
@@ -345,6 +425,16 @@ ${tasteContextBlock}`;
 
   const parsed = GeminiPlaylistSchema.parse(JSON.parse(text));
   let hydrated = hydrateTracks(parsed.tracks, knownTracks);
+
+  // Deterministically exclude any track from recent generated playlists when enabled
+  if (excludedRecentTracks.length > 0) {
+    const nonExcluded = hydrated.filter(
+      (t) => !isTrackExcluded(t, excludedRecentTracks)
+    );
+    if (nonExcluded.length > 0) {
+      hydrated = nonExcluded;
+    }
+  }
 
   // Enforce strict 0% familiarity when level 1 is selected
   if (knownTracks.length > 0 && familiarityLevel === 1) {
@@ -859,8 +949,10 @@ function matchEra(year: number | null, era: PlaylistGenerateRequest["era"]): boo
 }
 
 export function generateFallbackPlaylist(
-  input: PlaylistGenerateRequest
+  input: PlaylistGenerateRequest,
+  options?: { excludedRecentTracks?: ExcludedTrackRef[] }
 ): GeneratedPlaylist {
+  const excludedRecentTracks = options?.excludedRecentTracks ?? [];
   const seedLower = input.seeds.map((s) => s.toLowerCase());
   const promptLower = (input.prompt ?? "").toLowerCase();
   const genres = input.genres ?? [];
@@ -869,7 +961,18 @@ export function generateFallbackPlaylist(
   const familiarityLevel = input.familiarityLevel ?? 3;
   const popularityLevel = resolvePopularityLevel(input);
 
-  const scored = FALLBACK_CATALOG.map((item) => {
+  const scoredCandidates = FALLBACK_CATALOG.filter(
+    (item) =>
+      excludedRecentTracks.length === 0 ||
+      !isTrackExcluded(item, excludedRecentTracks)
+  );
+  const pool =
+    scoredCandidates.length >= Math.min(4, input.trackCount)
+      ? scoredCandidates
+      : FALLBACK_CATALOG;
+
+  const scored = pool
+    .map((item) => {
     let score = 0;
 
     if (input.themeTypes.includes(item.themeType)) score += 30;

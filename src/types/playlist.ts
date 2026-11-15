@@ -48,6 +48,14 @@ export interface TasteProfile {
   knownTracks: KnownTrackItem[];
 }
 
+export interface ExcludedTrackRef {
+  title: string;
+  titleRomaji?: string;
+  artist: string;
+  artistRomaji?: string;
+  animeTitle?: string;
+}
+
 export interface PlaylistGenerateRequest {
   seeds: string[];
   moods: string[];
@@ -59,6 +67,7 @@ export interface PlaylistGenerateRequest {
   includeHiddenGems?: boolean;
   popularityLevel?: PopularityLevel;
   familiarityLevel?: FamiliarityLevel;
+  excludeRecentTurns?: number;
   tasteProfile?: {
     dna: TasteDNA;
     knownTracks: KnownTrackItem[];

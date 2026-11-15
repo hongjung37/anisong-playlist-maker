@@ -9,6 +9,7 @@ import {
   Disc3,
   Loader2,
   Gem,
+  History,
   SlidersHorizontal,
 } from "lucide-react";
 import type {
@@ -17,6 +18,7 @@ import type {
   EraFilter,
   FamiliarityLevel,
   PlaylistGenerateRequest,
+  PlaylistHistoryEntry,
   PopularityLevel,
   TasteProfile,
   ThemeType,
@@ -153,14 +155,30 @@ interface PlaylistBuilderProps {
   loading: boolean;
   authStatus: AuthStatus | null;
   tasteProfile: TasteProfile | null;
+  playlistHistory: PlaylistHistoryEntry[];
   onChangeTasteProfile: (profile: TasteProfile | null) => void;
   onGenerate: (request: PlaylistGenerateRequest) => void;
+}
+
+function countUniqueHistoryTracks(
+  history: PlaylistHistoryEntry[],
+  turns: number
+): number {
+  if (turns <= 0 || history.length === 0) return 0;
+  const seen = new Set<string>();
+  for (const entry of history.slice(0, turns)) {
+    for (const track of entry.playlist.tracks) {
+      seen.add(`${track.title.trim().toLowerCase()}::${track.artist.trim().toLowerCase()}`);
+    }
+  }
+  return seen.size;
 }
 
 export function PlaylistBuilder({
   loading,
   authStatus,
   tasteProfile,
+  playlistHistory,
   onChangeTasteProfile,
   onGenerate,
 }: PlaylistBuilderProps) {
@@ -176,6 +194,8 @@ export function PlaylistBuilder({
   const [era, setEra] = useState<EraFilter>("ALL");
   const [trackCount, setTrackCount] = useState<number>(12);
   const [popularityLevel, setPopularityLevel] = useState<PopularityLevel>(3);
+  const [excludeRecentEnabled, setExcludeRecentEnabled] = useState<boolean>(true);
+  const [recentExcludeTurns, setRecentExcludeTurns] = useState<1 | 3 | 5>(1);
   const [prompt, setPrompt] = useState<string>("");
 
   useEffect(() => {
@@ -264,6 +284,7 @@ export function PlaylistBuilder({
       trackCount,
       popularityLevel,
       includeHiddenGems: popularityLevel >= 3,
+      excludeRecentTurns: excludeRecentEnabled ? recentExcludeTurns : 0,
       prompt,
       familiarityLevel,
       tasteProfile: tasteProfile
@@ -277,6 +298,10 @@ export function PlaylistBuilder({
 
   const activePopularity = POPULARITY_STEPS.find(
     (step) => step.level === popularityLevel
+  );
+  const excludedTrackCount = countUniqueHistoryTracks(
+    playlistHistory,
+    excludeRecentEnabled ? recentExcludeTurns : 0
   );
 
   return (
@@ -612,6 +637,56 @@ export function PlaylistBuilder({
             <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
               {activePopularity.desc}
             </p>
+          )}
+        </div>
+
+        {/* Exclude Recent Playlists */}
+        <div className="py-4">
+          <label className="flex cursor-pointer items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cobalt" />
+              <div>
+                <div className="text-xs font-semibold text-ink">
+                  이전 생성 플리 중복 제외
+                </div>
+                <div className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                  {playlistHistory.length === 0
+                    ? "생성 이력이 쌓이면 이전 플리에 나온 곡과 겹치지 않게 제외합니다"
+                    : excludeRecentEnabled
+                      ? `최근 ${Math.min(recentExcludeTurns, playlistHistory.length)}턴 (${excludedTrackCount}곡)을 이번 선곡에서 제외합니다`
+                      : "이전 생성 플리와의 곡 중복을 허용합니다"}
+                </div>
+              </div>
+            </div>
+            <input
+              id="exclude-recent-toggle"
+              type="checkbox"
+              checked={excludeRecentEnabled}
+              onChange={(e) => setExcludeRecentEnabled(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-cobalt"
+            />
+          </label>
+
+          {excludeRecentEnabled && (
+            <div className="mt-2.5 grid grid-cols-3 gap-1">
+              {([1, 3, 5] as const).map((turns) => {
+                const active = recentExcludeTurns === turns;
+                return (
+                  <button
+                    key={turns}
+                    type="button"
+                    onClick={() => setRecentExcludeTurns(turns)}
+                    className={`rounded border py-1.5 text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                      active
+                        ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                        : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                    }`}
+                  >
+                    {turns === 1 ? "직전 1턴" : `최근 ${turns}턴`}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
