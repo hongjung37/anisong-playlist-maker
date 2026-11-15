@@ -11,13 +11,14 @@ import {
   Disc3,
   Download,
   ExternalLink,
+  ListMusic,
   Loader2,
   Play,
   Trash2,
-  Tv,
   AlertTriangle,
   XCircle,
 } from "lucide-react";
+import { PlaylistPlayer } from "@/components/PlaylistPlayer";
 import type {
   AuthStatus,
   GeneratedPlaylist,
@@ -51,7 +52,9 @@ export function PlaylistWorkspace({
   onUpdatePlaylist,
   onOpenSetup,
 }: PlaylistWorkspaceProps) {
-  const [previewTrack, setPreviewTrack] = useState<PlaylistTrack | null>(null);
+  const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [repeatAll, setRepeatAll] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const [ytPrivacy, setYtPrivacy] = useState<"private" | "unlisted" | "public">(
@@ -137,6 +140,14 @@ export function PlaylistWorkspace({
     );
   }
 
+  const canResolveYouTube = Boolean(
+    authStatus?.youtubeConnected || authStatus?.youtubeApiKeyConfigured
+  );
+  const effectiveActiveTrackId =
+    activeTrackId && playlist.tracks.some((t) => t.id === activeTrackId)
+      ? activeTrackId
+      : null;
+
   const moveTrack = (index: number, delta: -1 | 1) => {
     const target = index + delta;
     if (target < 0 || target >= playlist.tracks.length) return;
@@ -146,9 +157,39 @@ export function PlaylistWorkspace({
   };
 
   const removeTrack = (trackId: string) => {
+    const removedIdx = playlist.tracks.findIndex((t) => t.id === trackId);
     const next = playlist.tracks.filter((t) => t.id !== trackId);
     onUpdatePlaylist({ ...playlist, tracks: next });
-    if (previewTrack?.id === trackId) setPreviewTrack(null);
+    if (effectiveActiveTrackId === trackId) {
+      if (next.length === 0) {
+        setActiveTrackId(null);
+        setIsPlaying(false);
+      } else {
+        const nextIdx = Math.min(removedIdx, next.length - 1);
+        setActiveTrackId(next[nextIdx].id);
+      }
+    }
+  };
+
+  const handlePlayAll = () => {
+    if (playlist.tracks.length === 0) return;
+    if (effectiveActiveTrackId) return;
+    setActiveTrackId(playlist.tracks[0].id);
+  };
+
+  const handleTrackResolved = (
+    trackId: string,
+    patch: Pick<
+      PlaylistTrack,
+      "youtubeVideoId" | "youtubeUrl" | "youtubeMusicUrl"
+    >
+  ) => {
+    onUpdatePlaylist({
+      ...playlist,
+      tracks: playlist.tracks.map((t) =>
+        t.id === trackId ? { ...t, ...patch } : t
+      ),
+    });
   };
 
   const handleCopyText = async () => {
@@ -529,52 +570,76 @@ export function PlaylistWorkspace({
         </div>
       </section>
 
-      {/* Embedded Preview Player */}
-      {previewTrack?.youtubeVideoId && (
-        <section className="overflow-hidden rounded-lg border border-hairline-strong bg-[#0B0D13] text-white">
-          <div className="flex items-center justify-between px-4 py-2.5">
-            <div className="flex items-center gap-2 text-xs font-medium">
-              <Tv className="h-4 w-4 text-obi" />
-              <span className="truncate">
-                {previewTrack.title} — {previewTrack.artist}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setPreviewTrack(null)}
-              className="text-xs text-slate-300 hover:text-white"
-            >
-              닫기
-            </button>
-          </div>
-          <div className="aspect-video w-full bg-black">
-            <iframe
-              src={`https://www.youtube.com/embed/${previewTrack.youtubeVideoId}?autoplay=1`}
-              title={previewTrack.title}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="h-full w-full"
-            />
-          </div>
-        </section>
+      {/* Sequential Web Player */}
+      {effectiveActiveTrackId && (
+        <PlaylistPlayer
+          tracks={playlist.tracks}
+          activeTrackId={effectiveActiveTrackId}
+          isPlaying={isPlaying}
+          repeatAll={repeatAll}
+          canResolveYouTube={canResolveYouTube}
+          onSelectTrack={(trackId) => setActiveTrackId(trackId)}
+          onPlayingChange={setIsPlaying}
+          onToggleRepeatAll={() => setRepeatAll((prev) => !prev)}
+          onClosePlayer={() => {
+            setActiveTrackId(null);
+            setIsPlaying(false);
+          }}
+          onTrackResolved={handleTrackResolved}
+          onOpenSetup={onOpenSetup}
+        />
       )}
 
       {/* Unified Tracklist Liner Sheet */}
       <section className="overflow-hidden rounded-lg border border-hairline bg-sheet">
-        <div className="flex items-center justify-between border-b border-hairline bg-sheet-muted px-5 py-2.5 text-[11px] font-semibold text-muted">
-          <span>트랙 리스트</span>
-          <span>순서 조정 및 바로 듣기</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline bg-sheet-muted px-5 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-muted">
+            <ListMusic className="h-3.5 w-3.5 text-cobalt" />
+            <span>트랙 리스트</span>
+            <span className="font-normal">· 순서 조정 및 바로 듣기</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!effectiveActiveTrackId ? (
+              <button
+                type="button"
+                onClick={handlePlayAll}
+                disabled={playlist.tracks.length === 0}
+                className="inline-flex items-center gap-1.5 rounded bg-obi px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+              >
+                <Play className="h-3 w-3 fill-current" />
+                전체 순차 재생 ({playlist.tracks.length}곡)
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded bg-cobalt-soft px-2.5 py-1 text-[11px] font-semibold text-cobalt-ink">
+                {isPlaying ? "웹 순차 재생 중" : "플레이어 열림"}
+              </span>
+            )}
+          </div>
         </div>
 
         <ol className="divide-y divide-hairline">
-          {playlist.tracks.map((track, idx) => (
+          {playlist.tracks.map((track, idx) => {
+            const isCurrent = effectiveActiveTrackId === track.id;
+            const playableOnWeb = Boolean(
+              track.youtubeVideoId || canResolveYouTube
+            );
+            return (
             <li
               key={track.id}
-              className="group flex flex-col gap-3 px-4 py-4 transition hover:bg-sheet-muted sm:flex-row sm:items-start sm:px-5"
+              className={`group flex flex-col gap-3 px-4 py-4 transition sm:flex-row sm:items-start sm:px-5 ${
+                isCurrent
+                  ? "border-l-2 border-l-cobalt bg-cobalt-soft/45"
+                  : "hover:bg-sheet-muted"
+              }`}
             >
               {/* Index & Cover */}
               <div className="flex items-center gap-3">
-                <span className="w-6 text-right text-xs font-semibold tabular-nums text-muted">
+                <span
+                  className={`w-6 text-right text-xs font-semibold tabular-nums ${
+                    isCurrent ? "text-cobalt-ink" : "text-muted"
+                  }`}
+                >
                   {String(idx + 1).padStart(2, "0")}
                 </span>
 
@@ -610,6 +675,11 @@ export function PlaylistWorkspace({
                   {track.titleRomaji && track.titleRomaji !== track.title && (
                     <span className="text-xs text-muted">
                       {track.titleRomaji}
+                    </span>
+                  )}
+                  {isCurrent && (
+                    <span className="rounded bg-cobalt px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {isPlaying ? "재생 중" : "선택됨"}
                     </span>
                   )}
                 </div>
@@ -660,13 +730,18 @@ export function PlaylistWorkspace({
               {/* Row Actions */}
               <div className="flex flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
                 <div className="flex items-center gap-1.5">
-                  {track.youtubeVideoId && (
+                  {playableOnWeb && (
                     <button
                       type="button"
-                      onClick={() => setPreviewTrack(track)}
-                      className="inline-flex items-center gap-1 rounded bg-ink px-2.5 py-1 text-[11px] font-semibold text-sheet transition hover:bg-cobalt hover:text-white"
+                      onClick={() => setActiveTrackId(track.id)}
+                      className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition ${
+                        isCurrent
+                          ? "bg-cobalt text-white"
+                          : "bg-ink text-sheet hover:bg-cobalt hover:text-white"
+                      }`}
                     >
-                      <Play className="h-3 w-3 fill-current" /> 재생
+                      <Play className="h-3 w-3 fill-current" />{" "}
+                      {isCurrent && isPlaying ? "재생 중" : "재생"}
                     </button>
                   )}
                   <a
@@ -717,7 +792,8 @@ export function PlaylistWorkspace({
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ol>
       </section>
     </div>

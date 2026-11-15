@@ -38,7 +38,7 @@ function isLowQualityMatch(title: string): boolean {
 async function queryYouTubeSearch(
   query: string,
   auth: { accessToken?: string; apiKey?: string },
-  musicOnly: boolean
+  options: { musicOnly: boolean; embeddableOnly?: boolean }
 ): Promise<YouTubeSearchItem[]> {
   const params = new URLSearchParams({
     part: "snippet",
@@ -47,8 +47,11 @@ async function queryYouTubeSearch(
     q: query,
   });
 
-  if (musicOnly) {
+  if (options.musicOnly) {
     params.set("videoCategoryId", "10");
+  }
+  if (options.embeddableOnly) {
+    params.set("videoEmbeddable", "true");
   }
 
   const headers: Record<string, string> = {};
@@ -70,10 +73,23 @@ async function queryYouTubeSearch(
   return data.items ?? [];
 }
 
+export type YouTubeSearchableTrack = Pick<
+  PlaylistTrack,
+  | "title"
+  | "titleRomaji"
+  | "artist"
+  | "artistRomaji"
+  | "animeTitleJapanese"
+  | "animeTitleRomaji"
+  | "themeLabel"
+>;
+
 export async function searchYouTubeTrack(
-  track: PlaylistTrack,
-  auth: { accessToken?: string; apiKey?: string }
+  track: YouTubeSearchableTrack,
+  auth: { accessToken?: string; apiKey?: string },
+  options?: { embeddableOnly?: boolean; excludeVideoIds?: string[] }
 ): Promise<{ videoId: string; title: string } | null> {
+  const excluded = new Set(options?.excludeVideoIds ?? []);
   const queries = [
     `${track.title} ${track.artist}`,
     `${track.title} ${track.animeTitleJapanese || track.animeTitleRomaji} ${track.themeLabel}`,
@@ -85,13 +101,16 @@ export async function searchYouTubeTrack(
   for (const query of queries) {
     // Prefer Music category first, then general video search (for official OP/ED uploads)
     for (const musicOnly of [true, false]) {
-      const items = await queryYouTubeSearch(query, auth, musicOnly);
+      const items = await queryYouTubeSearch(query, auth, {
+        musicOnly,
+        embeddableOnly: options?.embeddableOnly,
+      });
+      const usable = items.filter(
+        (item) => item.id?.videoId && !excluded.has(item.id.videoId)
+      );
       const best =
-        items.find(
-          (item) =>
-            item.id?.videoId &&
-            !isLowQualityMatch(item.snippet?.title ?? "")
-        ) ?? items.find((item) => Boolean(item.id?.videoId));
+        usable.find((item) => !isLowQualityMatch(item.snippet?.title ?? "")) ??
+        usable[0];
 
       if (best?.id?.videoId) {
         return {
@@ -133,7 +152,9 @@ export async function enrichTracksWithYouTube(
         };
       }
 
-      const match = await searchYouTubeTrack(track, auth);
+      const match = await searchYouTubeTrack(track, auth, {
+        embeddableOnly: true,
+      });
       if (!match) {
         return { ...track, ...fallback };
       }
