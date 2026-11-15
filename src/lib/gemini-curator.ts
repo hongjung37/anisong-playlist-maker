@@ -6,6 +6,7 @@ import type {
   KnownTrackItem,
   PlaylistGenerateRequest,
   PlaylistTrack,
+  PopularityLevel,
 } from "@/types/playlist";
 
 const TrackSchema = z.object({
@@ -203,6 +204,24 @@ function describeFamiliarity(
   }
 }
 
+function resolvePopularityLevel(input: PlaylistGenerateRequest): PopularityLevel {
+  if (input.popularityLevel) return input.popularityLevel;
+  return input.includeHiddenGems === false ? 2 : 3;
+}
+
+function describePopularity(level: PopularityLevel): string {
+  switch (level) {
+    case 1:
+      return "1단계 (메이저·대표곡 위주): 각 작품과 애니송 씬을 대표하는 메가히트곡, 1쿨 메인 OP/ED 등 대중적 인지도가 가장 높은 곡 위주로 구성하세요.";
+    case 2:
+      return "2단계 (대중곡 + 명곡 밸런스): 널리 알려진 대표곡과 팬층에서 꾸준히 사랑받는 명곡을 절반씩 균형 있게 배합하세요.";
+    case 3:
+      return "3단계 (숨은 명곡·중견 트랙 중심): 뻔한 메가히트곡(예: 아이돌, 홍련화, 잔혹한 천사의 테제 등) 비중을 낮추고, 팬들이 극찬하는 2쿨/후반부 OP·ED나 극중 삽입곡·명품 OST를 절반 이상 포함하세요.";
+    case 4:
+      return "4단계 (마이너·코어 딥컷 중심): 누구나 아는 대표 메가히트곡은 배제하고, B-side 수록곡·특정 화수 극중 삽입곡·캐릭터송·비주류 명작/OVA 타이업 등 코어 팬이 꼽는 딥컷 위주로 선곡하세요. (단, 실존 여부와 정확한 공식 제목이 확실한 곡만 선택할 것)";
+  }
+}
+
 function hydrateTracks(
   rawTracks: z.infer<typeof TrackSchema>[],
   knownTracks: KnownTrackItem[] = []
@@ -269,11 +288,14 @@ export async function generatePlaylistWithGemini(
 3. 사용자가 선택한 테마 타입(OP, ED, OST, INSERT, CHARACTER), 연대, 분위기에 최대한 맞추세요.
 4. 트랙 순서에도 신경 쓰세요 (오프닝으로 분위기를 열고, 중간에 감정 변주를 주며, 마지막 트랙으로 여운을 남기는 흐름).
 5. 중복된 곡은 넣지 말고, 요청한 트랙 수에 정확히 맞추세요.
-6. includeHiddenGems가 true이면 너무 뻔한 메가히트곡(예: 아이돌, 홍련화, 잔혹한 천사의 테제 등)만 나열하지 말고 팬들이 극찬하는 숨은 명곡이나 B-side급 극중곡을 최소 40% 이상 포함하세요.`;
+6. 인지도/대중성(메이저↔마이너 4단계) 지침을 반드시 반영하되, 마이너 단계일수록 존재하지 않는 곡이나 불확실한 제목을 지어내지 말고 실존과 공식 음원명이 확실한 곡만 고르세요.
+7. 선호 장르/스타일(예: 전파송, 기타록, 심포닉 오케스트라, 유로비트, 보컬로이드계 등)이 지정되면 편곡 문법과 사운드 질감이 해당 장르에 정확히 부합하는 곡을 우선 선택하세요.`;
 
   const knownTracks = input.tasteProfile?.knownTracks ?? [];
   const tasteDna = input.tasteProfile?.dna ?? null;
   const familiarityLevel = input.familiarityLevel ?? 3;
+  const popularityLevel = resolvePopularityLevel(input);
+  const genres = input.genres ?? [];
 
   const tasteContextBlock = tasteDna
     ? `\n[사용자 취향 DNA 프로파일]
@@ -296,9 +318,10 @@ ${knownTracks
 
 - 시드(기준 작품 / 곡 / 아티스트): ${input.seeds.length > 0 ? input.seeds.join(", ") : "지정 없음 (취향 DNA와 분위기 중심으로 자유 선곡)"}
 - 원하는 분위기/무드: ${input.moods.length > 0 ? input.moods.join(", ") : "밸런스 있는 애니송 명곡 흐름"}
+- 선호 장르/스타일: ${genres.length > 0 ? genres.join(", ") : "장르 제한 없음 (작품과 무드에 맞게 자유 배합)"}
 - 포함할 곡 유형(Theme Types): ${input.themeTypes.length > 0 ? input.themeTypes.join(", ") : "OP, ED, INSERT"}
 - 시대/연대: ${describeEra(input.era)}
-- 숨은 명곡 비중 높이기: ${input.includeHiddenGems ? "예 (유명곡 외 숨은 명곡 적극 포함)" : "아니오 (대표곡과 인지도 높은 명곡 중심)"}
+- 대중성/인지도 (메이저 ↔ 마이너): ${describePopularity(popularityLevel)}
 - 추가 요청 사항: ${input.prompt?.trim() ? input.prompt.trim() : "없음"}
 - 요청 곡 수: ${input.trackCount}곡
 ${tasteContextBlock}`;
@@ -840,9 +863,11 @@ export function generateFallbackPlaylist(
 ): GeneratedPlaylist {
   const seedLower = input.seeds.map((s) => s.toLowerCase());
   const promptLower = (input.prompt ?? "").toLowerCase();
+  const genres = input.genres ?? [];
 
   const knownTracks = input.tasteProfile?.knownTracks ?? [];
   const familiarityLevel = input.familiarityLevel ?? 3;
+  const popularityLevel = resolvePopularityLevel(input);
 
   const scored = FALLBACK_CATALOG.map((item) => {
     let score = 0;
@@ -854,7 +879,16 @@ export function generateFallbackPlaylist(
       if (item.tags.includes(mood)) score += 25;
     }
 
-    const haystack = `${item.animeTitle} ${item.animeTitleRomaji} ${item.animeTitleJapanese} ${item.title} ${item.artist} ${item.tags.join(" ")}`.toLowerCase();
+    const haystack = `${item.animeTitle} ${item.animeTitleRomaji} ${item.animeTitleJapanese} ${item.title} ${item.artist} ${item.bpmVibe} ${item.tags.join(" ")}`.toLowerCase();
+    for (const genre of genres) {
+      const tokens = genre
+        .toLowerCase()
+        .split(/[\s/·]+/)
+        .filter((t) => t.length >= 2);
+      if (tokens.some((tok) => haystack.includes(tok))) {
+        score += 25;
+      }
+    }
     for (const seed of seedLower) {
       if (seed && haystack.includes(seed)) score += 50;
     }
@@ -864,8 +898,13 @@ export function generateFallbackPlaylist(
       }
     }
 
-    if (input.includeHiddenGems && (item.themeType === "INSERT" || item.themeType === "OST" || item.themeType === "CHARACTER")) {
-      score += 12;
+    const isDeepCutType =
+      item.themeType === "INSERT" ||
+      item.themeType === "OST" ||
+      item.themeType === "CHARACTER";
+    if (popularityLevel === 1 && item.themeType === "OP") score += 15;
+    if (popularityLevel >= 3 && isDeepCutType) {
+      score += popularityLevel === 4 ? 24 : 12;
     }
 
     const inLib = knownTracks.length > 0 && isTrackInKnownLibrary(item, knownTracks);

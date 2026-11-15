@@ -14,13 +14,17 @@ import type { GeneratedPlaylist } from "@/types/playlist";
 const RequestSchema = z.object({
   seeds: z.array(z.string()).default([]),
   moods: z.array(z.string()).default([]),
+  genres: z.array(z.string()).default([]),
   themeTypes: z
     .array(z.enum(["OP", "ED", "OST", "INSERT", "CHARACTER"]))
     .default(["OP", "ED", "INSERT"]),
   era: z.enum(["ALL", "2020s", "2010s", "2000s", "classic"]).default("ALL"),
   trackCount: z.number().int().min(5).max(25).default(12),
   prompt: z.string().max(600).optional().default(""),
-  includeHiddenGems: z.boolean().default(true),
+  includeHiddenGems: z.boolean().optional().default(true),
+  popularityLevel: z
+    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .optional(),
   familiarityLevel: z
     .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
     .optional()
@@ -73,8 +77,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const effectivePopularity =
+      parsed.data.popularityLevel ?? (parsed.data.includeHiddenGems ? 3 : 2);
+
     const playlist = await generatePlaylistWithGemini({
       ...parsed.data,
+      popularityLevel: effectivePopularity,
       tasteProfile: effectiveTaste ?? null,
     });
 

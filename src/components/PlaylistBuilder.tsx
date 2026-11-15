@@ -17,6 +17,7 @@ import type {
   EraFilter,
   FamiliarityLevel,
   PlaylistGenerateRequest,
+  PopularityLevel,
   TasteProfile,
   ThemeType,
 } from "@/types/playlist";
@@ -25,12 +26,57 @@ import { TasteProfilePanel } from "@/components/TasteProfilePanel";
 const MOOD_OPTIONS = [
   "질주감 / 열혈",
   "새벽 감성",
-  "청춘 / 밴드",
-  "몽환 / 이세계",
-  "시티팝 / 칠",
   "울컥 / 감동",
-  "다크 / 배틀",
+  "몽환 / 이세계",
+  "다크 / 비장함",
   "발랄 / 일상",
+  "청량 / 여름",
+  "긴박 / 배틀",
+];
+
+const GENRE_OPTIONS = [
+  "기타록 / 밴드",
+  "전파송 / 덴파",
+  "심포닉 / 오케스트라",
+  "일렉트로 / 퓨처베이스",
+  "유로비트 / 하이테크",
+  "보컬로이드 / 우타이테계",
+  "아이돌 / 콜곡",
+  "시티팝 / 칠 R&B",
+  "어쿠스틱 / 피아노 발라드",
+  "성우 팝 / 캐릭터송",
+];
+
+const POPULARITY_STEPS: Array<{
+  level: PopularityLevel;
+  badge: string;
+  title: string;
+  desc: string;
+}> = [
+  {
+    level: 1,
+    badge: "메이저",
+    title: "메가히트",
+    desc: "입문자도 바로 알 만한 대표 OP/ED와 메가히트곡 위주로 고릅니다",
+  },
+  {
+    level: 2,
+    badge: "밸런스",
+    title: "대중+명곡",
+    desc: "널리 알려진 대표곡과 팬들에게 인정받는 명곡을 절반씩 섞습니다",
+  },
+  {
+    level: 3,
+    badge: "마이너",
+    title: "숨은 명곡",
+    desc: "뻔한 메가히트 대신 2쿨 OP/ED·극중 삽입곡·명품 OST를 주로 고릅니다",
+  },
+  {
+    level: 4,
+    badge: "딥컷",
+    title: "코어 선곡",
+    desc: "B-side·특정 화수 삽입곡·비주류 명작 등 마니아 취향 딥컷에 집중합니다",
+  },
 ];
 
 const THEME_TYPE_OPTIONS: Array<{ value: ThemeType; label: string; hint: string }> = [
@@ -57,10 +103,11 @@ const PRESETS: Array<{
     label: "청춘 밴드 록",
     data: {
       seeds: ["봇치 더 록!", "걸즈 밴드 크라이"],
-      moods: ["청춘 / 밴드", "질주감 / 열혈"],
+      moods: ["질주감 / 열혈", "청량 / 여름"],
+      genres: ["기타록 / 밴드"],
       themeTypes: ["OP", "ED", "INSERT"],
       era: "2020s",
-      includeHiddenGems: true,
+      popularityLevel: 3,
       prompt: "기타와 베이스가 돋보이는 극중 라이브 및 밴드 곡 위주로 이어지게 구성해 줘.",
     },
   },
@@ -69,9 +116,10 @@ const PRESETS: Array<{
     data: {
       seeds: ["장송의 프리렌", "바케모노가타리"],
       moods: ["새벽 감성", "울컥 / 감동"],
+      genres: ["어쿠스틱 / 피아노 발라드"],
       themeTypes: ["ED", "INSERT"],
       era: "ALL",
-      includeHiddenGems: true,
+      popularityLevel: 3,
       prompt: "새벽에 혼자 듣기 좋은 잔잔한 도입부에서 후렴에 벅차오르는 흐름.",
     },
   },
@@ -79,10 +127,11 @@ const PRESETS: Array<{
     label: "다크 배틀",
     data: {
       seeds: ["주술회전", "체인소 맨"],
-      moods: ["다크 / 배틀", "질주감 / 열혈"],
+      moods: ["다크 / 비장함", "질주감 / 열혈"],
+      genres: ["기타록 / 밴드", "일렉트로 / 퓨처베이스"],
       themeTypes: ["OP", "OST"],
       era: "2020s",
-      includeHiddenGems: false,
+      popularityLevel: 2,
       prompt: "강렬한 비트와 어두운 분위기의 최신 다크 판타지 배틀 트랙 중심.",
     },
   },
@@ -91,9 +140,10 @@ const PRESETS: Array<{
     data: {
       seeds: ["Re:제로부터 시작하는 이세계 생활", "알드노아. 제로"],
       moods: ["몽환 / 이세계", "울컥 / 감동"],
+      genres: ["심포닉 / 오케스트라"],
       themeTypes: ["OP", "ED", "OST", "INSERT"],
       era: "ALL",
-      includeHiddenGems: true,
+      popularityLevel: 3,
       prompt: "신스와 오케스트라 스케일이 큰 웅장한 곡들과 몽환적인 엔딩을 섞어 줘.",
     },
   },
@@ -120,11 +170,12 @@ export function PlaylistBuilder({
   const [searchResults, setSearchResults] = useState<AnimeSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const [moods, setMoods] = useState<string[]>(["청춘 / 밴드", "질주감 / 열혈"]);
+  const [moods, setMoods] = useState<string[]>(["질주감 / 열혈", "울컥 / 감동"]);
+  const [genres, setGenres] = useState<string[]>(["기타록 / 밴드"]);
   const [themeTypes, setThemeTypes] = useState<ThemeType[]>(["OP", "ED", "INSERT"]);
   const [era, setEra] = useState<EraFilter>("ALL");
   const [trackCount, setTrackCount] = useState<number>(12);
-  const [includeHiddenGems, setIncludeHiddenGems] = useState<boolean>(true);
+  const [popularityLevel, setPopularityLevel] = useState<PopularityLevel>(3);
   const [prompt, setPrompt] = useState<string>("");
 
   useEffect(() => {
@@ -175,6 +226,12 @@ export function PlaylistBuilder({
     );
   };
 
+  const toggleGenre = (genre: string) => {
+    setGenres((prev) =>
+      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
+    );
+  };
+
   const toggleThemeType = (type: ThemeType) => {
     setThemeTypes((prev) => {
       if (prev.includes(type)) {
@@ -187,10 +244,11 @@ export function PlaylistBuilder({
   const applyPreset = (presetData: Partial<PlaylistGenerateRequest>) => {
     if (presetData.seeds) setSeeds(presetData.seeds);
     if (presetData.moods) setMoods(presetData.moods);
+    if (presetData.genres) setGenres(presetData.genres);
     if (presetData.themeTypes) setThemeTypes(presetData.themeTypes);
     if (presetData.era) setEra(presetData.era);
-    if (typeof presetData.includeHiddenGems === "boolean") {
-      setIncludeHiddenGems(presetData.includeHiddenGems);
+    if (presetData.popularityLevel) {
+      setPopularityLevel(presetData.popularityLevel);
     }
     if (presetData.prompt !== undefined) setPrompt(presetData.prompt);
   };
@@ -200,10 +258,12 @@ export function PlaylistBuilder({
     onGenerate({
       seeds,
       moods,
+      genres,
       themeTypes,
       era,
       trackCount,
-      includeHiddenGems,
+      popularityLevel,
+      includeHiddenGems: popularityLevel >= 3,
       prompt,
       familiarityLevel,
       tasteProfile: tasteProfile
@@ -214,6 +274,10 @@ export function PlaylistBuilder({
         : null,
     });
   };
+
+  const activePopularity = POPULARITY_STEPS.find(
+    (step) => step.level === popularityLevel
+  );
 
   return (
     <form
@@ -398,6 +462,35 @@ export function PlaylistBuilder({
           </div>
         </div>
 
+        {/* Genres / Styles */}
+        <div className="py-4">
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-xs font-semibold text-ink">장르 / 스타일</span>
+            <span className="text-[11px] text-muted">
+              {genres.length > 0 ? `${genres.length}개 선택` : "선택 안 함 = 자유"}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {GENRE_OPTIONS.map((genre) => {
+              const active = genres.includes(genre);
+              return (
+                <button
+                  key={genre}
+                  type="button"
+                  onClick={() => toggleGenre(genre)}
+                  className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                    active
+                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                      : "border-hairline bg-sheet text-ink-soft hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  {genre}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Theme Types */}
         <div className="py-4">
           <div className="mb-2 text-xs font-semibold text-ink">곡 유형</div>
@@ -467,27 +560,59 @@ export function PlaylistBuilder({
           </div>
         </div>
 
-        {/* Hidden Gems Toggle */}
+        {/* Popularity Slider (Major <-> Minor) */}
         <div className="py-4">
-          <label className="flex cursor-pointer items-start justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <Gem className="mt-0.5 h-4 w-4 shrink-0 text-obi" />
-              <div>
-                <div className="text-xs font-semibold text-ink">
-                  숨은 명곡과 극중곡 비중 높이기
-                </div>
-                <div className="mt-0.5 text-[11px] leading-relaxed text-muted">
-                  스트리밍 앱이 반복 추천하는 대표곡 외에 수록곡과 비주류 명곡을 더 섞습니다
-                </div>
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              checked={includeHiddenGems}
-              onChange={(e) => setIncludeHiddenGems(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-cobalt"
-            />
-          </label>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <label
+              htmlFor="popularity-slider"
+              className="flex items-center gap-1.5 text-xs font-semibold text-ink"
+            >
+              <Gem className="h-3.5 w-3.5 shrink-0 text-obi" />
+              인지도 / 대중성 (메이저 ↔ 마이너)
+            </label>
+            <span className="text-[11px] font-semibold text-cobalt-ink">
+              {activePopularity?.badge} · {activePopularity?.title}
+            </span>
+          </div>
+
+          <input
+            id="popularity-slider"
+            type="range"
+            min={1}
+            max={4}
+            step={1}
+            value={popularityLevel}
+            onChange={(e) =>
+              setPopularityLevel(Number(e.target.value) as PopularityLevel)
+            }
+            className="mb-2.5 h-1.5 w-full cursor-pointer accent-cobalt"
+          />
+
+          <div className="grid grid-cols-4 gap-1">
+            {POPULARITY_STEPS.map((step) => {
+              const active = popularityLevel === step.level;
+              return (
+                <button
+                  key={step.level}
+                  type="button"
+                  onClick={() => setPopularityLevel(step.level)}
+                  className={`flex flex-col items-center rounded border py-1.5 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                    active
+                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                      : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  <span className="text-[10px] font-bold">{step.badge}</span>
+                  <span className="text-[10px] leading-tight">{step.title}</span>
+                </button>
+              );
+            })}
+          </div>
+          {activePopularity && (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+              {activePopularity.desc}
+            </p>
+          )}
         </div>
 
         {/* Custom Note */}

@@ -4,6 +4,8 @@ export type EraFilter = "ALL" | "2020s" | "2010s" | "2000s" | "classic";
 
 export type FamiliarityLevel = 1 | 2 | 3 | 4;
 
+export type PopularityLevel = 1 | 2 | 3 | 4;
+
 export interface AnimeSearchItem {
   id: number;
   titleRomaji: string;
@@ -49,11 +51,13 @@ export interface TasteProfile {
 export interface PlaylistGenerateRequest {
   seeds: string[];
   moods: string[];
+  genres?: string[];
   themeTypes: ThemeType[];
   era: EraFilter;
   trackCount: number;
   prompt?: string;
-  includeHiddenGems: boolean;
+  includeHiddenGems?: boolean;
+  popularityLevel?: PopularityLevel;
   familiarityLevel?: FamiliarityLevel;
   tasteProfile?: {
     dna: TasteDNA;
