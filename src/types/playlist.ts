@@ -1,0 +1,143 @@
+export type ThemeType = "OP" | "ED" | "OST" | "INSERT" | "CHARACTER";
+
+export type EraFilter = "ALL" | "2020s" | "2010s" | "2000s" | "classic";
+
+export type FamiliarityLevel = 1 | 2 | 3 | 4;
+
+export interface AnimeSearchItem {
+  id: number;
+  titleRomaji: string;
+  titleNative: string;
+  titleEnglish: string | null;
+  seasonYear: number | null;
+  genres: string[];
+  coverImage: string | null;
+}
+
+export interface YouTubePlaylistSummary {
+  id: string;
+  title: string;
+  itemCount: number;
+  thumbnail: string | null;
+  kind: "playlist" | "likes";
+}
+
+export interface KnownTrackItem {
+  rawTitle: string;
+  channelTitle?: string;
+  videoId?: string;
+  sourceName: string;
+}
+
+export interface TasteDNA {
+  summary: string;
+  sonicTraits: string[];
+  favoriteArtists: string[];
+  eraPreference: string;
+  recommendedSeeds: string[];
+}
+
+export interface TasteProfile {
+  version: 1;
+  sourceSignature: string;
+  updatedAt: string;
+  selectedSources: Array<{ id: string; title: string; count: number }>;
+  dna: TasteDNA;
+  knownTracks: KnownTrackItem[];
+}
+
+export interface PlaylistGenerateRequest {
+  seeds: string[];
+  moods: string[];
+  themeTypes: ThemeType[];
+  era: EraFilter;
+  trackCount: number;
+  prompt?: string;
+  includeHiddenGems: boolean;
+  familiarityLevel?: FamiliarityLevel;
+  tasteProfile?: {
+    dna: TasteDNA;
+    knownTracks: KnownTrackItem[];
+  } | null;
+}
+
+export interface PlaylistTrack {
+  id: string;
+  title: string;
+  titleRomaji: string;
+  artist: string;
+  artistRomaji: string;
+  animeTitle: string;
+  animeTitleJapanese: string;
+  animeTitleRomaji: string;
+  themeType: ThemeType;
+  themeLabel: string;
+  year: number | null;
+  bpmVibe: string;
+  reason: string;
+  setlistSection?: string;
+  inUserLibrary?: boolean;
+  coverImage: string | null;
+  youtubeVideoId: string | null;
+  youtubeUrl: string;
+  youtubeMusicUrl: string;
+  spotifyUri: string | null;
+  spotifyUrl: string;
+}
+
+export interface GeneratedPlaylist {
+  title: string;
+  description: string;
+  curatorSummary: string;
+  mode: "gemini" | "demo-fallback";
+  tracks: PlaylistTrack[];
+}
+
+export interface ExportTrackResult {
+  trackId: string;
+  title: string;
+  artist: string;
+  status: "added" | "not_found" | "failed";
+  matchedTitle?: string;
+  externalUrl?: string;
+  reason?: string;
+}
+
+export interface PlaylistExportResponse {
+  platform: "youtube" | "spotify";
+  playlistId: string;
+  playlistUrl: string;
+  secondaryUrl?: string;
+  addedCount: number;
+  totalCount: number;
+  results: ExportTrackResult[];
+}
+
+export interface PlaylistHistoryEntry {
+  id: string;
+  createdAt: string;
+  title: string;
+  trackCount: number;
+  mode: "gemini" | "demo-fallback";
+  playlist: GeneratedPlaylist;
+}
+
+export interface StoredUserData {
+  accountKey: string;
+  updatedAt: string;
+  tasteProfile: TasteProfile | null;
+  lastPlaylist: GeneratedPlaylist | null;
+  playlistHistory: PlaylistHistoryEntry[];
+}
+
+export interface AuthStatus {
+  geminiConfigured: boolean;
+  youtubeConfigured: boolean;
+  youtubeApiKeyConfigured: boolean;
+  spotifyConfigured: boolean;
+  youtubeConnected: boolean;
+  youtubeChannelName?: string;
+  spotifyConnected: boolean;
+  spotifyDisplayName?: string;
+  appUrl: string;
+}

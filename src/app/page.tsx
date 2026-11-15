@@ -1,69 +1,392 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Disc3,
+  KeyRound,
+  LogOut,
+  CheckCircle2,
+  AlertCircle,
+  Sun,
+  Moon,
+  History,
+} from "lucide-react";
+import { PlaylistBuilder } from "@/components/PlaylistBuilder";
+import { PlaylistWorkspace } from "@/components/PlaylistWorkspace";
+import { SetupModal } from "@/components/SetupModal";
+import type {
+  AuthStatus,
+  GeneratedPlaylist,
+  PlaylistGenerateRequest,
+  PlaylistHistoryEntry,
+  StoredUserData,
+  TasteProfile,
+} from "@/types/playlist";
+
+const LEGACY_TASTE_KEY = "anitune_taste_profile_v1";
+const LEGACY_PLAYLIST_KEY = "anitune_last_playlist_v1";
+
+export default function HomePage() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [tasteProfile, setTasteProfile] = useState<TasteProfile | null>(null);
+  const [playlist, setPlaylist] = useState<GeneratedPlaylist | null>(null);
+  const [playlistHistory, setPlaylistHistory] = useState<
+    PlaylistHistoryEntry[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{
+    type: "ok" | "err";
+    text: string;
+  } | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchAuthAndUserState = useCallback(async () => {
+    try {
+      const [authRes, stateRes] = await Promise.all([
+        fetch("/api/auth/status", { cache: "no-store" }),
+        fetch("/api/user/state", { cache: "no-store" }),
+      ]);
+
+      if (authRes.ok) {
+        const authData = (await authRes.json()) as AuthStatus;
+        setAuthStatus(authData);
+      }
+
+      if (stateRes.ok) {
+        let userData = (await stateRes.json()) as StoredUserData;
+
+        // One-time migration from legacy browser storage if server store is empty
+        if (!userData.tasteProfile) {
+          try {
+            const legacyRaw = window.localStorage.getItem(LEGACY_TASTE_KEY);
+            if (legacyRaw) {
+              const legacyProfile = JSON.parse(legacyRaw) as TasteProfile;
+              if (legacyProfile?.dna) {
+                const migRes = await fetch("/api/user/state", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ tasteProfile: legacyProfile }),
+                });
+                if (migRes.ok) {
+                  userData = (await migRes.json()) as StoredUserData;
+                }
+              }
+              window.localStorage.removeItem(LEGACY_TASTE_KEY);
+            }
+          } catch {
+            // Ignore migration errors
+          }
+        }
+
+        try {
+          window.sessionStorage.removeItem(LEGACY_PLAYLIST_KEY);
+        } catch {
+          // Ignore cleanup errors
+        }
+
+        setTasteProfile(userData.tasteProfile);
+        setPlaylist(userData.lastPlaylist);
+        setPlaylistHistory(userData.playlistHistory ?? []);
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function hydrateClientState() {
+      const params = new URLSearchParams(window.location.search);
+      const connected = params.get("connected");
+      const authError = params.get("auth_error");
+      if (active) {
+        if (connected === "youtube") {
+          setBanner({
+            type: "ok",
+            text: "YouTube 계정이 연결되었습니다. 내 플리를 불러오거나 완성된 셋리를 바로 저장할 수 있습니다.",
+          });
+        } else if (connected === "spotify") {
+          setBanner({
+            type: "ok",
+            text: "Spotify 계정이 연결되었습니다. 이제 완성된 셋리를 바로 저장할 수 있습니다.",
+          });
+        } else if (authError) {
+          setBanner({
+            type: "err",
+            text: `계정 연결 중 오류가 발생했습니다 (${authError}). 연동 설정 안내를 확인해 주세요.`,
+          });
+        }
+      }
+
+      if (connected || authError) {
+        window.history.replaceState({}, "", "/");
+      }
+
+      if (active) {
+        await fetchAuthAndUserState();
+      }
+    }
+
+    void hydrateClientState();
+
+    return () => {
+      active = false;
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+  }, [fetchAuthAndUserState]);
+
+  const toggleTheme = () => {
+    const root = document.documentElement;
+    const isDark = root.classList.toggle("dark");
+    try {
+      localStorage.setItem("anitune_theme", isDark ? "dark" : "light");
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  const updatePlaylist = (next: GeneratedPlaylist | null) => {
+    setPlaylist(next);
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(async () => {
+      try {
+        await fetch("/api/user/state", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lastPlaylist: next }),
+        });
+      } catch {
+        // Ignore background sync errors
+      }
+    }, 350);
+  };
+
+  const handleGenerate = async (request: PlaylistGenerateRequest) => {
+    setLoading(true);
+    setError(null);
+    setBanner(null);
+
+    try {
+      const res = await fetch("/api/playlist/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "플레이리스트 생성에 실패했습니다.");
+      }
+
+      const { playlistHistory: updatedHistory, ...generated } = data as GeneratedPlaylist & {
+        playlistHistory?: PlaylistHistoryEntry[];
+      };
+      setPlaylist(generated);
+      if (Array.isArray(updatedHistory)) {
+        setPlaylistHistory(updatedHistory);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "요청 처리 중 오류가 발생했습니다."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async (provider: "youtube" | "spotify") => {
+    await fetch(`/api/auth/${provider}/logout`, { method: "POST" });
+    await fetchAuthAndUserState();
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen">
+      {/* Studio Top Bar */}
+      <header className="sticky top-0 z-30 border-b border-hairline bg-sheet/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded bg-ink text-sheet">
+              <Disc3 className="h-4 w-4" />
+            </div>
+            <div className="flex items-baseline gap-2.5">
+              <h1 className="font-display text-lg font-bold tracking-tight text-ink">
+                AniTune
+              </h1>
+              <span className="hidden text-xs text-muted sm:inline">
+                애니송 셋리 큐레이션 스튜디오
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* YouTube Account */}
+            {authStatus?.youtubeConnected ? (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-sheet-muted px-2.5 py-1 text-xs font-medium text-ink">
+                <span className="h-2 w-2 rounded-full bg-obi" />
+                <span>{authStatus.youtubeChannelName}</span>
+                <button
+                  type="button"
+                  onClick={() => handleLogout("youtube")}
+                  className="ml-0.5 rounded p-0.5 text-muted hover:bg-hairline hover:text-ink"
+                  title="YouTube 연결 해제"
+                >
+                  <LogOut className="h-3 w-3" />
+                </button>
+              </div>
+            ) : authStatus?.youtubeConfigured ? (
+              <a
+                href="/api/auth/youtube/login"
+                className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-obi/50 hover:text-obi-ink"
+              >
+                <span className="h-2 w-2 rounded-full bg-obi" />
+                YouTube 연결
+              </a>
+            ) : null}
+
+            {/* Spotify Account */}
+            {authStatus?.spotifyConnected ? (
+              <div className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-sheet-muted px-2.5 py-1 text-xs font-medium text-ink">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span>{authStatus.spotifyDisplayName}</span>
+                <button
+                  type="button"
+                  onClick={() => handleLogout("spotify")}
+                  className="ml-0.5 rounded p-0.5 text-muted hover:bg-hairline hover:text-ink"
+                  title="Spotify 연결 해제"
+                >
+                  <LogOut className="h-3 w-3" />
+                </button>
+              </div>
+            ) : authStatus?.spotifyConfigured ? (
+              <a
+                href="/api/auth/spotify/login"
+                className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Spotify 연결
+              </a>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setSetupOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong bg-sheet px-2.5 py-1 text-xs font-medium text-ink transition hover:bg-sheet-muted"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <KeyRound className="h-3.5 w-3.5 text-cobalt" />
+              연동 설정
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong bg-sheet px-2.5 py-1 text-xs font-medium text-ink transition hover:bg-sheet-muted focus-visible:outline-2 focus-visible:outline-cobalt"
+              title="다크 / 라이트 모드 전환"
+              aria-label="다크 / 라이트 모드 전환"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              <Moon className="h-3.5 w-3.5 dark:hidden" />
+              <Sun className="hidden h-3.5 w-3.5 text-amber-400 dark:inline" />
+              <span className="dark:hidden">다크</span>
+              <span className="hidden dark:inline">라이트</span>
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      </header>
+
+      {/* Main Two-Column Workbench */}
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        {banner && (
+          <div
+            className={`mb-5 flex items-center justify-between gap-3 rounded-md border px-4 py-2.5 text-xs ${
+              banner.type === "ok"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+                : "border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-200"
+            }`}
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+            <div className="flex items-center gap-2">
+              {banner.type === "ok" ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+              )}
+              <span>{banner.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBanner(null)}
+              className="font-medium text-muted hover:text-ink"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-5 flex items-center gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-800 dark:text-red-200">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          <div className="lg:col-span-5 xl:col-span-4">
+            <PlaylistBuilder
+              loading={loading}
+              authStatus={authStatus}
+              tasteProfile={tasteProfile}
+              onChangeTasteProfile={setTasteProfile}
+              onGenerate={handleGenerate}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+
+          <div className="space-y-4 lg:col-span-7 xl:col-span-8">
+            {playlistHistory.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-hairline bg-sheet px-4 py-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+                  <History className="h-3.5 w-3.5 text-cobalt" />
+                  최근 생성 셋리
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {playlistHistory.slice(0, 5).map((entry) => {
+                    const active = playlist?.title === entry.title;
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => updatePlaylist(entry.playlist)}
+                        className={`max-w-[190px] truncate rounded border px-2 py-1 text-[11px] font-medium transition ${
+                          active
+                            ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                            : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+                        }`}
+                        title={`${entry.title} (${entry.trackCount}곡)`}
+                      >
+                        {entry.title}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <PlaylistWorkspace
+              playlist={playlist}
+              loading={loading}
+              authStatus={authStatus}
+              onUpdatePlaylist={updatePlaylist}
+              onOpenSetup={() => setSetupOpen(true)}
+            />
+          </div>
         </div>
       </main>
+
+      <SetupModal
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        authStatus={authStatus}
+      />
     </div>
   );
 }

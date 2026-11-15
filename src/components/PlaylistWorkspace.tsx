@@ -1,0 +1,725 @@
+"use client";
+
+import Image from "next/image";
+import { useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  CheckCircle2,
+  Copy,
+  Disc3,
+  Download,
+  ExternalLink,
+  Loader2,
+  Play,
+  Trash2,
+  Tv,
+  AlertTriangle,
+  XCircle,
+} from "lucide-react";
+import type {
+  AuthStatus,
+  GeneratedPlaylist,
+  PlaylistExportResponse,
+  PlaylistTrack,
+  ThemeType,
+} from "@/types/playlist";
+
+const THEME_BADGE_STYLES: Record<ThemeType, string> = {
+  OP: "bg-obi-soft text-obi-ink border-obi/25",
+  ED: "bg-cobalt-soft text-cobalt-ink border-cobalt/25",
+  INSERT:
+    "bg-amber-500/10 text-amber-700 border-amber-500/25 dark:text-amber-300",
+  OST: "bg-sheet-muted text-ink-soft border-hairline-strong",
+  CHARACTER:
+    "bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-300",
+};
+
+interface PlaylistWorkspaceProps {
+  playlist: GeneratedPlaylist | null;
+  loading: boolean;
+  authStatus: AuthStatus | null;
+  onUpdatePlaylist: (updated: GeneratedPlaylist) => void;
+  onOpenSetup: () => void;
+}
+
+export function PlaylistWorkspace({
+  playlist,
+  loading,
+  authStatus,
+  onUpdatePlaylist,
+  onOpenSetup,
+}: PlaylistWorkspaceProps) {
+  const [previewTrack, setPreviewTrack] = useState<PlaylistTrack | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const [ytPrivacy, setYtPrivacy] = useState<"private" | "unlisted" | "public">(
+    "private"
+  );
+  const [spPublic, setSpPublic] = useState<boolean>(false);
+
+  const [exportingPlatform, setExportingPlatform] = useState<
+    "youtube" | "spotify" | null
+  >(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportResult, setExportResult] =
+    useState<PlaylistExportResponse | null>(null);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-hairline bg-sheet p-10 text-center">
+        <Loader2 className="mb-4 h-7 w-7 animate-spin text-cobalt" />
+        <h3 className="font-display text-xl font-bold text-ink">
+          셋리를 엮는 중입니다
+        </h3>
+        <p className="mt-2 max-w-md text-xs leading-relaxed text-muted">
+          원어 곡명과 로마자 표기, 작품 커버 아트를 맞춰 유튜브 뮤직과 스포티파이에서도 바로 찾을 수 있도록 정리하고 있습니다.
+        </p>
+      </div>
+    );
+  }
+
+  if (!playlist) {
+    return (
+      <div className="overflow-hidden rounded-lg border border-hairline bg-sheet">
+        <div className="flex flex-col sm:flex-row">
+          {/* Signature CD Obi Strip */}
+          <div className="flex items-center justify-between bg-obi px-5 py-3 text-white sm:w-14 sm:flex-col sm:py-6">
+            <span className="text-[11px] font-bold tracking-[0.22em] sm:[writing-mode:vertical-rl]">
+              ANITUNE DISC
+            </span>
+            <Disc3 className="h-5 w-5 opacity-90" />
+          </div>
+
+          <div className="flex-1 p-7 sm:p-10">
+            <p className="text-xs font-semibold text-obi-ink">
+              라이너 노트 &amp; 셋리 시트
+            </p>
+            <h2 className="font-display mt-2 text-2xl font-bold leading-snug text-ink sm:text-3xl">
+              작품의 장면과 여운이 이어지는
+              <br />
+              나만의 애니송 셋리를 짜보세요
+            </h2>
+            <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">
+              스트리밍 앱의 자동 추천은 인기곡 몇 개만 반복해서 들려줍니다. 왼쪽 선곡 조건에서 좋아하는 작품과 분위기를 고르면, OP·ED·극중 삽입곡의 감정선까지 맞춘 셋리를 만들고 내 계정으로 바로 저장할 수 있습니다.
+            </p>
+
+            <dl className="mt-8 grid grid-cols-1 gap-5 border-t border-hairline pt-6 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs font-semibold text-ink">
+                  장면 맥락 기반 선곡
+                </dt>
+                <dd className="mt-1 text-xs leading-relaxed text-muted">
+                  시드 작품의 밴드 사운드, 작곡가 계보, 극중 역할을 함께 고려해 흐름을 짭니다.
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold text-ink">
+                  원어·로마자 이중 매칭
+                </dt>
+                <dd className="mt-1 text-xs leading-relaxed text-muted">
+                  일본어 원제와 로마자 표기를 같이 찾아 스포티파이·유튜브 검색 누락을 줄입니다.
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold text-ink">
+                  계정에 바로 저장
+                </dt>
+                <dd className="mt-1 text-xs leading-relaxed text-muted">
+                  YouTube Music과 Spotify OAuth 로그인 후 완성된 셋리를 즉시 플리로 생성합니다.
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const moveTrack = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= playlist.tracks.length) return;
+    const next = [...playlist.tracks];
+    [next[index], next[target]] = [next[target], next[index]];
+    onUpdatePlaylist({ ...playlist, tracks: next });
+  };
+
+  const removeTrack = (trackId: string) => {
+    const next = playlist.tracks.filter((t) => t.id !== trackId);
+    onUpdatePlaylist({ ...playlist, tracks: next });
+    if (previewTrack?.id === trackId) setPreviewTrack(null);
+  };
+
+  const handleCopyText = async () => {
+    const lines = [
+      playlist.title,
+      playlist.description,
+      "",
+      ...playlist.tracks.map(
+        (t, i) =>
+          `${i + 1}. ${t.title} - ${t.artist} [${t.animeTitle} ${t.themeLabel}]`
+      ),
+    ];
+    await navigator.clipboard.writeText(lines.join("\n"));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const downloadFile = (filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadJson = () => {
+    downloadFile(
+      `${playlist.title.replace(/[^\w가-힣-]+/g, "_")}.json`,
+      JSON.stringify(playlist, null, 2),
+      "application/json"
+    );
+  };
+
+  const handleDownloadM3u = () => {
+    const lines = [
+      "#EXTM3U",
+      `#PLAYLIST:${playlist.title}`,
+      ...playlist.tracks.flatMap((t) => [
+        `#EXTINF:-1,${t.artist} - ${t.title} (${t.animeTitle} ${t.themeLabel})`,
+        t.youtubeUrl,
+      ]),
+    ];
+    downloadFile(
+      `${playlist.title.replace(/[^\w가-힣-]+/g, "_")}.m3u8`,
+      lines.join("\n"),
+      "audio/x-mpegurl"
+    );
+  };
+
+  const handleExport = async (platform: "youtube" | "spotify") => {
+    setExportingPlatform(platform);
+    setExportError(null);
+    setExportResult(null);
+
+    try {
+      const endpoint =
+        platform === "youtube" ? "/api/export/youtube" : "/api/export/spotify";
+      const body =
+        platform === "youtube"
+          ? {
+              title: playlist.title,
+              description: playlist.description,
+              privacyStatus: ytPrivacy,
+              tracks: playlist.tracks,
+            }
+          : {
+              title: playlist.title,
+              description: playlist.description,
+              isPublic: spPublic,
+              tracks: playlist.tracks,
+            };
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "내보내기 중 오류가 발생했습니다.");
+      }
+
+      setExportResult(data as PlaylistExportResponse);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "내보내기 요청에 실패했습니다."
+      );
+    } finally {
+      setExportingPlatform(null);
+    }
+  };
+
+  const firstCover = playlist.tracks.find((t) => t.coverImage)?.coverImage;
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Album Obi + Liner Sheet Header */}
+      <section className="overflow-hidden rounded-lg border border-hairline bg-sheet">
+        <div className="flex flex-col sm:flex-row">
+          {/* Vertical CD Obi Spine */}
+          <div className="flex items-center justify-between bg-obi px-4 py-2.5 text-white sm:w-12 sm:shrink-0 sm:flex-col sm:py-5">
+            <span className="text-[11px] font-bold tracking-[0.2em] sm:[writing-mode:vertical-rl]">
+              SETLIST
+            </span>
+            <span className="text-[11px] font-semibold tabular-nums sm:[writing-mode:vertical-rl]">
+              {playlist.tracks.length} TRACKS
+            </span>
+          </div>
+
+          {/* Main Liner Metadata */}
+          <div className="min-w-0 flex-1 p-5 sm:p-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {playlist.mode === "gemini" ? (
+                  <span className="rounded bg-cobalt-soft px-2 py-0.5 text-[11px] font-semibold text-cobalt-ink">
+                    AI 큐레이션 완료
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onOpenSetup}
+                    className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-500/25 dark:text-amber-300"
+                  >
+                    <AlertTriangle className="h-3 w-3" /> 샘플 카탈로그 모드 (API 키 설정 안내)
+                  </button>
+                )}
+              </div>
+
+              {/* Local Utilities */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleCopyText}
+                  className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                  {copied ? "복사됨" : "목록 복사"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadM3u}
+                  className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
+                >
+                  <Download className="h-3.5 w-3.5" /> M3U8
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadJson}
+                  className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
+                >
+                  <Download className="h-3.5 w-3.5" /> JSON
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-4">
+              {firstCover && (
+                <Image
+                  src={firstCover}
+                  alt={playlist.title}
+                  width={76}
+                  height={104}
+                  unoptimized
+                  className="hidden h-[104px] w-[76px] shrink-0 rounded-sm border border-hairline object-cover sm:block"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={playlist.title}
+                  onChange={(e) =>
+                    onUpdatePlaylist({ ...playlist, title: e.target.value })
+                  }
+                  aria-label="플레이리스트 제목"
+                  className="font-display w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-2xl font-bold text-ink transition hover:border-hairline focus:border-cobalt focus:bg-sheet-muted focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={playlist.description}
+                  onChange={(e) =>
+                    onUpdatePlaylist({
+                      ...playlist,
+                      description: e.target.value,
+                    })
+                  }
+                  aria-label="플레이리스트 설명"
+                  className="mt-1 w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-muted transition hover:border-hairline focus:border-cobalt focus:bg-sheet-muted focus:outline-none"
+                />
+                <p className="mt-3 border-l-2 border-ink pl-3 text-xs leading-relaxed text-ink-soft">
+                  {playlist.curatorSummary}
+                </p>
+              </div>
+            </div>
+
+            {/* Platform Save Bar */}
+            <div className="mt-5 grid grid-cols-1 gap-3 border-t border-hairline pt-4 md:grid-cols-2">
+              {/* YouTube Music Save */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline bg-sheet-muted p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-obi" />
+                  <span className="text-xs font-semibold text-ink">
+                    YouTube Music
+                  </span>
+                  <select
+                    value={ytPrivacy}
+                    onChange={(e) =>
+                      setYtPrivacy(
+                        e.target.value as "private" | "unlisted" | "public"
+                      )
+                    }
+                    aria-label="YouTube 공개 설정"
+                    className="rounded border border-hairline-strong bg-sheet px-1.5 py-0.5 text-[11px] text-ink-soft"
+                  >
+                    <option value="private">비공개</option>
+                    <option value="unlisted">일부 공개</option>
+                    <option value="public">공개</option>
+                  </select>
+                </div>
+
+                {authStatus?.youtubeConnected ? (
+                  <button
+                    type="button"
+                    disabled={
+                      exportingPlatform !== null || playlist.tracks.length === 0
+                    }
+                    onClick={() => handleExport("youtube")}
+                    className="inline-flex items-center gap-1.5 rounded bg-obi px-3 py-1.5 text-xs font-semibold text-white transition hover:brightness-95 disabled:opacity-50"
+                  >
+                    {exportingPlatform === "youtube" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        저장 중...
+                      </>
+                    ) : (
+                      <>계정에 저장</>
+                    )}
+                  </button>
+                ) : authStatus?.youtubeConfigured ? (
+                  <a
+                    href="/api/auth/youtube/login"
+                    className="inline-flex items-center rounded border border-obi/35 bg-sheet px-3 py-1.5 text-xs font-semibold text-obi-ink transition hover:bg-obi-soft"
+                  >
+                    Google 로그인
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onOpenSetup}
+                    className="rounded border border-hairline-strong bg-sheet px-2.5 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                  >
+                    연동 설정 필요
+                  </button>
+                )}
+              </div>
+
+              {/* Spotify Save */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline bg-sheet-muted p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-semibold text-ink">
+                    Spotify
+                  </span>
+                  <select
+                    value={spPublic ? "public" : "private"}
+                    onChange={(e) => setSpPublic(e.target.value === "public")}
+                    aria-label="Spotify 공개 설정"
+                    className="rounded border border-hairline-strong bg-sheet px-1.5 py-0.5 text-[11px] text-ink-soft"
+                  >
+                    <option value="private">비공개</option>
+                    <option value="public">공개</option>
+                  </select>
+                </div>
+
+                {authStatus?.spotifyConnected ? (
+                  <button
+                    type="button"
+                    disabled={
+                      exportingPlatform !== null || playlist.tracks.length === 0
+                    }
+                    onClick={() => handleExport("spotify")}
+                    className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {exportingPlatform === "spotify" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        저장 중...
+                      </>
+                    ) : (
+                      <>계정에 저장</>
+                    )}
+                  </button>
+                ) : authStatus?.spotifyConfigured ? (
+                  <a
+                    href="/api/auth/spotify/login"
+                    className="inline-flex items-center rounded border border-emerald-500/35 bg-sheet px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+                  >
+                    Spotify 로그인
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onOpenSetup}
+                    className="rounded border border-hairline-strong bg-sheet px-2.5 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                  >
+                    연동 설정 필요
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {exportError && (
+              <div className="mt-3 flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-800 dark:text-red-200">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                <span>{exportError}</span>
+              </div>
+            )}
+
+            {exportResult && (
+              <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    {exportResult.platform === "youtube"
+                      ? "YouTube Music"
+                      : "Spotify"}
+                    에 {exportResult.addedCount} / {exportResult.totalCount}곡이 저장되었습니다
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={exportResult.playlistUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded bg-ink px-3 py-1 text-xs font-semibold text-sheet hover:opacity-90"
+                    >
+                      {exportResult.platform === "youtube"
+                        ? "YouTube Music 열기"
+                        : "Spotify 열기"}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                    {exportResult.secondaryUrl && (
+                      <a
+                        href={exportResult.secondaryUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-hairline-strong bg-sheet px-2.5 py-1 text-xs font-medium text-ink-soft hover:text-ink"
+                      >
+                        YouTube 열기 <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {exportResult.results.some((r) => r.status !== "added") && (
+                  <div className="mt-2.5 space-y-1 border-t border-emerald-500/20 pt-2 text-[11px] text-ink-soft">
+                    <div className="font-semibold text-amber-700 dark:text-amber-300">
+                      찾지 못한 트랙 (
+                      {exportResult.totalCount - exportResult.addedCount}곡)
+                    </div>
+                    {exportResult.results
+                      .filter((r) => r.status !== "added")
+                      .map((r) => (
+                        <div key={r.trackId}>
+                          • {r.title} ({r.artist}) — {r.reason}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Embedded Preview Player */}
+      {previewTrack?.youtubeVideoId && (
+        <section className="overflow-hidden rounded-lg border border-hairline-strong bg-[#0B0D13] text-white">
+          <div className="flex items-center justify-between px-4 py-2.5">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Tv className="h-4 w-4 text-obi" />
+              <span className="truncate">
+                {previewTrack.title} — {previewTrack.artist}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPreviewTrack(null)}
+              className="text-xs text-slate-300 hover:text-white"
+            >
+              닫기
+            </button>
+          </div>
+          <div className="aspect-video w-full bg-black">
+            <iframe
+              src={`https://www.youtube.com/embed/${previewTrack.youtubeVideoId}?autoplay=1`}
+              title={previewTrack.title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="h-full w-full"
+            />
+          </div>
+        </section>
+      )}
+
+      {/* Unified Tracklist Liner Sheet */}
+      <section className="overflow-hidden rounded-lg border border-hairline bg-sheet">
+        <div className="flex items-center justify-between border-b border-hairline bg-sheet-muted px-5 py-2.5 text-[11px] font-semibold text-muted">
+          <span>트랙 리스트</span>
+          <span>순서 조정 및 바로 듣기</span>
+        </div>
+
+        <ol className="divide-y divide-hairline">
+          {playlist.tracks.map((track, idx) => (
+            <li
+              key={track.id}
+              className="group flex flex-col gap-3 px-4 py-4 transition hover:bg-sheet-muted sm:flex-row sm:items-start sm:px-5"
+            >
+              {/* Index & Cover */}
+              <div className="flex items-center gap-3">
+                <span className="w-6 text-right text-xs font-semibold tabular-nums text-muted">
+                  {String(idx + 1).padStart(2, "0")}
+                </span>
+
+                {track.coverImage ? (
+                  <Image
+                    src={track.coverImage}
+                    alt={track.animeTitle}
+                    width={46}
+                    height={62}
+                    unoptimized
+                    className="h-[62px] w-[46px] shrink-0 rounded-sm border border-hairline object-cover"
+                  />
+                ) : (
+                  <div className="flex h-[62px] w-[46px] shrink-0 items-center justify-center rounded-sm border border-hairline bg-sheet-muted text-muted">
+                    <Disc3 className="h-5 w-5" />
+                  </div>
+                )}
+
+                <div className="min-w-0 flex-1 sm:hidden">
+                  <div className="truncate text-sm font-bold text-ink">
+                    {track.title}
+                  </div>
+                  <div className="truncate text-xs text-muted">
+                    {track.artist}
+                  </div>
+                </div>
+              </div>
+
+              {/* Track Body */}
+              <div className="min-w-0 flex-1">
+                <div className="hidden sm:flex sm:flex-wrap sm:items-baseline sm:gap-2">
+                  <h3 className="text-sm font-bold text-ink">{track.title}</h3>
+                  {track.titleRomaji && track.titleRomaji !== track.title && (
+                    <span className="text-xs text-muted">
+                      {track.titleRomaji}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="hidden font-medium text-ink-soft sm:inline">
+                    {track.artist}
+                  </span>
+                  <span className="font-semibold text-cobalt-ink">
+                    {track.animeTitle}
+                  </span>
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${THEME_BADGE_STYLES[track.themeType]}`}
+                  >
+                    {track.themeLabel}
+                  </span>
+                  {track.setlistSection && (
+                    <span className="rounded border border-hairline bg-sheet-muted px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+                      {track.setlistSection}
+                    </span>
+                  )}
+                  {track.inUserLibrary !== undefined && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        track.inUserLibrary
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                          : "bg-cobalt-soft text-cobalt-ink"
+                      }`}
+                    >
+                      {track.inUserLibrary ? "내 라이브러리" : "신규 추천"}
+                    </span>
+                  )}
+                  {track.year && (
+                    <span className="text-[11px] tabular-nums text-muted">
+                      {track.year}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-muted">
+                    {track.bpmVibe}
+                  </span>
+                </div>
+
+                <p className="mt-1.5 max-w-[74ch] text-xs leading-relaxed text-ink-soft">
+                  {track.reason}
+                </p>
+              </div>
+
+              {/* Row Actions */}
+              <div className="flex flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
+                <div className="flex items-center gap-1.5">
+                  {track.youtubeVideoId && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTrack(track)}
+                      className="inline-flex items-center gap-1 rounded bg-ink px-2.5 py-1 text-[11px] font-semibold text-sheet transition hover:bg-cobalt hover:text-white"
+                    >
+                      <Play className="h-3 w-3 fill-current" /> 재생
+                    </button>
+                  )}
+                  <a
+                    href={track.youtubeMusicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-obi/50 hover:text-obi-ink"
+                  >
+                    YT Music <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                  <a
+                    href={track.spotifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
+                  >
+                    Spotify <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+
+                <div className="flex items-center gap-0.5 text-muted sm:opacity-75 sm:group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => moveTrack(idx, -1)}
+                    disabled={idx === 0}
+                    className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                    title="위로 이동"
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveTrack(idx, 1)}
+                    disabled={idx === playlist.tracks.length - 1}
+                    className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                    title="아래로 이동"
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeTrack(track.id)}
+                    className="rounded p-1 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+                    title="트랙 삭제"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </div>
+  );
+}

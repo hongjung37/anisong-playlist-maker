@@ -1,26 +1,86 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans), "Pretendard", "Noto Sans KR", "Noto Sans JP", system-ui, sans-serif;
+  --font-display: var(--font-display), "Shippori Mincho", "Noto Serif KR", Georgia, serif;
+
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-sheet-muted: var(--sheet-muted);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-cobalt: var(--cobalt);
+  --color-cobalt-soft: var(--cobalt-soft);
+  --color-cobalt-ink: var(--cobalt-ink);
+  --color-obi: var(--obi);
+  --color-obi-soft: var(--obi-soft);
+  --color-obi-ink: var(--obi-ink);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: light;
+  --paper: #f5f6f8;
+  --sheet: #ffffff;
+  --sheet-muted: #fafbfd;
+  --ink: #0f172a;
+  --ink-soft: #334155;
+  --muted: #5b6475;
+  --hairline: #e2e6ee;
+  --hairline-strong: #d4dae5;
+  --cobalt: #2563eb;
+  --cobalt-soft: #eff4ff;
+  --cobalt-ink: #1d4ed8;
+  --obi: #e11d48;
+  --obi-soft: #fff1f2;
+  --obi-ink: #be123c;
+}
+
+html.dark {
+  color-scheme: dark;
+  --paper: #0e1015;
+  --sheet: #151821;
+  --sheet-muted: #1b1f2b;
+  --ink: #f1f3f7;
+  --ink-soft: #cbd5e1;
+  --muted: #8e99ad;
+  --hairline: #252a38;
+  --hairline-strong: #343b4f;
+  --cobalt: #3b82f6;
+  --cobalt-soft: rgba(59, 130, 246, 0.16);
+  --cobalt-ink: #93c5fd;
+  --obi: #e11d48;
+  --obi-soft: rgba(225, 29, 72, 0.16);
+  --obi-ink: #fda4af;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Subtle crisp scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }
