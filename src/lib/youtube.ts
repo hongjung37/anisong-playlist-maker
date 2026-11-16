@@ -11,6 +11,22 @@ interface YouTubeSearchItem {
   snippet?: { title?: string; channelTitle?: string };
 }
 
+interface YouTubeVideoDetailItem {
+  id?: string;
+  status?: { embeddable?: boolean };
+  contentDetails?: {
+    regionRestriction?: {
+      allowed?: string[];
+      blocked?: string[];
+    };
+  };
+}
+
+interface VideoEmbedStatus {
+  embeddable: boolean;
+  blockedInKr: boolean;
+}
+
 function buildSearchUrls(track: PlaylistTrack) {
   const q = encodeURIComponent(
     `${track.title} ${track.artist} ${track.animeTitleJapanese || track.animeTitle}`
@@ -21,29 +37,93 @@ function buildSearchUrls(track: PlaylistTrack) {
   };
 }
 
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 function isLowQualityMatch(title: string): boolean {
   const lower = title.toLowerCase();
   return (
     lower.includes("nightcore") ||
     lower.includes("1 hour") ||
     lower.includes("1시간") ||
+    lower.includes("hour loop") ||
+    lower.includes("時間耐久") ||
     lower.includes("karaoke") ||
     lower.includes("off vocal") ||
     lower.includes("instrumental") ||
     lower.includes("piano cover") ||
-    lower.includes("8d audio")
+    lower.includes("8d audio") ||
+    lower.includes("#shorts") ||
+    lower.includes("視聴動画")
   );
+}
+
+function isTopicChannel(channelTitle: string): boolean {
+  const trimmed = channelTitle.trim();
+  return trimmed.endsWith("- Topic") || trimmed.endsWith("- 주제");
+}
+
+function normalizeMatchText(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[\s\-_'"`~!@#$%^&*+=[\]{}();:,.<>?/\\|！？・〜～『』「」【】]/g, "");
+}
+
+function cleanSearchText(str: string): string {
+  return str
+    .replace(/[（(][^）)]*cv[:：]?[^）)]*[）)]/gi, " ")
+    .replace(/[☆★×～〜・、,（）()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export class YouTubeApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function buildAuthHeadersAndParams(
+  params: URLSearchParams,
+  auth: { accessToken?: string; apiKey?: string }
+): Record<string, string> | null {
+  const headers: Record<string, string> = {};
+  if (auth.accessToken) {
+    headers.Authorization = `Bearer ${auth.accessToken}`;
+  } else if (auth.apiKey) {
+    params.set("key", auth.apiKey);
+  } else {
+    return null;
+  }
+  return headers;
 }
 
 async function queryYouTubeSearch(
   query: string,
   auth: { accessToken?: string; apiKey?: string },
-  options: { musicOnly: boolean; embeddableOnly?: boolean }
+  options: {
+    musicOnly: boolean;
+    embeddableOnly?: boolean;
+    maxResults?: number;
+    throwOnError?: boolean;
+  }
 ): Promise<YouTubeSearchItem[]> {
   const params = new URLSearchParams({
     part: "snippet",
     type: "video",
-    maxResults: "5",
+    maxResults: String(options.maxResults ?? 15),
     q: query,
   });
 
@@ -54,23 +134,71 @@ async function queryYouTubeSearch(
     params.set("videoEmbeddable", "true");
   }
 
-  const headers: Record<string, string> = {};
-  if (auth.accessToken) {
-    headers.Authorization = `Bearer ${auth.accessToken}`;
-  } else if (auth.apiKey) {
-    params.set("key", auth.apiKey);
-  } else {
-    return [];
-  }
+  const headers = buildAuthHeadersAndParams(params, auth);
+  if (!headers) return [];
 
   const res = await fetch(
     `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
     { headers, cache: "no-store" }
   );
 
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    console.warn(`[YouTube search.list] HTTP ${res.status} for "${query}": ${errText.slice(0, 200)}`);
+    if (options.throwOnError && (res.status === 401 || res.status === 403)) {
+      throw new YouTubeApiError(
+        res.status,
+        res.status === 401
+          ? "YouTube 로그인 세션이 만료되었습니다. 다시 연결해 주세요."
+          : "YouTube API 일일 할당량이 초과되었거나 권한이 없습니다."
+      );
+    }
+    return [];
+  }
   const data = (await res.json()) as { items?: YouTubeSearchItem[] };
   return data.items ?? [];
+}
+
+async function fetchVideoEmbedStatuses(
+  videoIds: string[],
+  auth: { accessToken?: string; apiKey?: string }
+): Promise<Map<string, VideoEmbedStatus>> {
+  const statusMap = new Map<string, VideoEmbedStatus>();
+  const uniqueIds = Array.from(new Set(videoIds)).slice(0, 50);
+  if (uniqueIds.length === 0) return statusMap;
+
+  const params = new URLSearchParams({
+    part: "status,contentDetails",
+    id: uniqueIds.join(","),
+  });
+  const headers = buildAuthHeadersAndParams(params, auth);
+  if (!headers) return statusMap;
+
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
+      { headers, cache: "no-store" }
+    );
+    if (!res.ok) return statusMap;
+
+    const data = (await res.json()) as { items?: YouTubeVideoDetailItem[] };
+    for (const item of data.items ?? []) {
+      if (!item.id) continue;
+      const restriction = item.contentDetails?.regionRestriction;
+      const blockedInKr = Boolean(
+        restriction?.blocked?.includes("KR") ||
+          (restriction?.allowed && !restriction.allowed.includes("KR"))
+      );
+      statusMap.set(item.id, {
+        embeddable: item.status?.embeddable !== false,
+        blockedInKr,
+      });
+    }
+  } catch {
+    // Graceful fallback: keep search results usable if videos.list fails
+  }
+
+  return statusMap;
 }
 
 export type YouTubeSearchableTrack = Pick<
@@ -84,44 +212,215 @@ export type YouTubeSearchableTrack = Pick<
   | "themeLabel"
 >;
 
+interface CollectedCandidate {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  musicOnly: boolean;
+  rankIndex: number;
+  lowQuality: boolean;
+  topicChannel: boolean;
+}
+
 export async function searchYouTubeTrack(
   track: YouTubeSearchableTrack,
   auth: { accessToken?: string; apiKey?: string },
-  options?: { embeddableOnly?: boolean; excludeVideoIds?: string[] }
-): Promise<{ videoId: string; title: string } | null> {
+  options?: {
+    embeddableOnly?: boolean;
+    excludeVideoIds?: string[];
+    maxStepCount?: number;
+    maxCandidates?: number;
+    throwOnError?: boolean;
+  }
+): Promise<{
+  videoId: string;
+  title: string;
+  candidateVideoIds: string[];
+} | null> {
   const excluded = new Set(options?.excludeVideoIds ?? []);
-  const queries = [
-    `${track.title} ${track.artist}`,
-    `${track.title} ${track.animeTitleJapanese || track.animeTitleRomaji} ${track.themeLabel}`,
-    `${track.titleRomaji} ${track.artistRomaji}`,
+  const embeddableOnly = Boolean(options?.embeddableOnly);
+  const maxStepCount = options?.maxStepCount ?? (embeddableOnly ? 4 : 2);
+  const maxCandidates = options?.maxCandidates ?? 8;
+
+  const cleanArtist = cleanSearchText(track.artist);
+  const cleanAnimeJp = cleanSearchText(track.animeTitleJapanese || "");
+  const cleanAnimeRomaji = cleanSearchText(track.animeTitleRomaji || "");
+  const animeName = cleanAnimeJp || cleanAnimeRomaji;
+
+  const searchSteps: Array<{
+    query: string;
+    musicOnly: boolean;
+    useEmbedFilter: boolean;
+  }> = [
+    {
+      query: `${track.title} ${cleanArtist || track.artist}`,
+      musicOnly: true,
+      useEmbedFilter: embeddableOnly,
+    },
+    ...(animeName
+      ? [
+          {
+            query: `${track.title} ${animeName}`,
+            musicOnly: false,
+            useEmbedFilter: embeddableOnly,
+          },
+        ]
+      : []),
+    ...(cleanAnimeRomaji && cleanAnimeRomaji !== animeName
+      ? [
+          {
+            query: `${track.titleRomaji || track.title} ${cleanAnimeRomaji}`,
+            musicOnly: false,
+            useEmbedFilter: embeddableOnly,
+          },
+        ]
+      : []),
+    {
+      query: `${track.titleRomaji || track.title} ${cleanSearchText(track.artistRomaji || "") || cleanArtist}`,
+      musicOnly: false,
+      useEmbedFilter: embeddableOnly,
+    },
+    ...(embeddableOnly
+      ? [
+          {
+            query: `${track.title} ${animeName || cleanArtist}`.trim(),
+            musicOnly: false,
+            useEmbedFilter: false,
+          },
+        ]
+      : []),
   ]
-    .map((q) => q.trim())
-    .filter((q, idx, arr) => q.length > 0 && arr.indexOf(q) === idx);
+    .map((step) => ({ ...step, query: step.query.trim() }))
+    .filter(
+      (step, idx, arr) =>
+        step.query.length > 0 &&
+        arr.findIndex(
+          (other) =>
+            other.query === step.query &&
+            other.musicOnly === step.musicOnly &&
+            other.useEmbedFilter === step.useEmbedFilter
+        ) === idx
+    )
+    .slice(0, maxStepCount);
 
-  for (const query of queries) {
-    // Prefer Music category first, then general video search (for official OP/ED uploads)
-    for (const musicOnly of [true, false]) {
-      const items = await queryYouTubeSearch(query, auth, {
-        musicOnly,
-        embeddableOnly: options?.embeddableOnly,
+  const collected = new Map<string, CollectedCandidate>();
+  const verifiedStatus = new Map<string, VideoEmbedStatus>();
+
+  const normTitles = [track.title, track.titleRomaji]
+    .map(normalizeMatchText)
+    .filter((t) => t.length >= 2);
+
+  for (const step of searchSteps) {
+    const items = await queryYouTubeSearch(step.query, auth, {
+      musicOnly: step.musicOnly,
+      embeddableOnly: step.useEmbedFilter,
+      maxResults: 15,
+      throwOnError: options?.throwOnError,
+    });
+
+    const newIds: string[] = [];
+    items.forEach((item, rankIndex) => {
+      const videoId = item.id?.videoId;
+      if (!videoId || excluded.has(videoId) || collected.has(videoId)) return;
+      const title = decodeHtmlEntities(item.snippet?.title ?? track.title);
+      const channelTitle = decodeHtmlEntities(item.snippet?.channelTitle ?? "");
+      collected.set(videoId, {
+        videoId,
+        title,
+        channelTitle,
+        musicOnly: step.musicOnly,
+        rankIndex,
+        lowQuality: isLowQualityMatch(title),
+        topicChannel: isTopicChannel(channelTitle),
       });
-      const usable = items.filter(
-        (item) => item.id?.videoId && !excluded.has(item.id.videoId)
-      );
-      const best =
-        usable.find((item) => !isLowQualityMatch(item.snippet?.title ?? "")) ??
-        usable[0];
+      newIds.push(videoId);
+    });
 
-      if (best?.id?.videoId) {
-        return {
-          videoId: best.id.videoId,
-          title: best.snippet?.title ?? track.title,
-        };
+    if (embeddableOnly && newIds.length > 0) {
+      const batchStatuses = await fetchVideoEmbedStatuses(newIds, auth);
+      for (const [id, st] of batchStatuses.entries()) {
+        verifiedStatus.set(id, st);
       }
+    }
+
+    // Stop early only when we have enough clean, embeddable candidates.
+    // For embeddable playback, require at least 2 non-Topic clean candidates
+    // so Topic-only / blocked official uploads don't block anime fan/MV uploads.
+    const goodCount = Array.from(collected.values()).filter((c) => {
+      if (c.lowQuality) return false;
+      if (!embeddableOnly) return true;
+      const st = verifiedStatus.get(c.videoId);
+      if (st && (!st.embeddable || st.blockedInKr)) return false;
+      return !c.topicChannel;
+    }).length;
+
+    if (goodCount >= 2) {
+      break;
     }
   }
 
-  return null;
+  const allCandidates = Array.from(collected.values()).filter((c) => {
+    if (!embeddableOnly) return true;
+    const st = verifiedStatus.get(c.videoId);
+    return st ? st.embeddable : true;
+  });
+
+  if (allCandidates.length === 0) {
+    return null;
+  }
+
+  const hasCleanCandidate = allCandidates.some((c) => !c.lowQuality);
+  let pool = hasCleanCandidate
+    ? allCandidates.filter((c) => !c.lowQuality)
+    : allCandidates;
+
+  const titleMatchedPool =
+    normTitles.length > 0
+      ? pool.filter((c) => {
+          const normTitle = normalizeMatchText(c.title);
+          return normTitles.some((t) => normTitle.includes(t));
+        })
+      : [];
+  if (titleMatchedPool.length > 0) {
+    pool = titleMatchedPool;
+  }
+
+  const scored = pool
+    .map((c) => {
+      let score = 30 - c.rankIndex;
+      const normTitle = normalizeMatchText(c.title);
+      if (normTitles.some((t) => normTitle.includes(t))) {
+        score += 25;
+      }
+      if (c.musicOnly) {
+        score += 5;
+      }
+      if (c.lowQuality) {
+        score -= 120;
+      }
+      if (embeddableOnly) {
+        const st = verifiedStatus.get(c.videoId);
+        if (st?.blockedInKr) {
+          score -= 500;
+        }
+        // Slightly prefer non-Topic embeddable uploads while keeping Topic in fallbacks
+        score += c.topicChannel ? -12 : 12;
+      } else if (c.topicChannel) {
+        score += 10;
+      }
+      return { candidate: c, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const topCandidates = scored.slice(0, maxCandidates).map((s) => s.candidate);
+  const best = topCandidates[0];
+  if (!best) return null;
+
+  return {
+    videoId: best.videoId,
+    title: best.title,
+    candidateVideoIds: topCandidates.map((c) => c.videoId),
+  };
 }
 
 export async function enrichTracksWithYouTube(
@@ -154,6 +453,7 @@ export async function enrichTracksWithYouTube(
 
       const match = await searchYouTubeTrack(track, auth, {
         embeddableOnly: true,
+        maxStepCount: 2,
       });
       if (!match) {
         return { ...track, ...fallback };
@@ -162,6 +462,7 @@ export async function enrichTracksWithYouTube(
       return {
         ...track,
         youtubeVideoId: match.videoId,
+        youtubeCandidateIds: match.candidateVideoIds,
         youtubeUrl: `https://www.youtube.com/watch?v=${match.videoId}`,
         youtubeMusicUrl: `https://music.youtube.com/watch?v=${match.videoId}`,
       };

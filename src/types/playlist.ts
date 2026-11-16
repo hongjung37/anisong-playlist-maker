@@ -92,6 +92,7 @@ export interface PlaylistTrack {
   inUserLibrary?: boolean;
   coverImage: string | null;
   youtubeVideoId: string | null;
+  youtubeCandidateIds?: string[];
   youtubeUrl: string;
   youtubeMusicUrl: string;
   spotifyUri: string | null;

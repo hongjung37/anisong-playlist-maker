@@ -107,7 +107,7 @@ interface PlaylistPlayerProps {
     trackId: string,
     patch: Pick<
       PlaylistTrack,
-      "youtubeVideoId" | "youtubeUrl" | "youtubeMusicUrl"
+      "youtubeVideoId" | "youtubeCandidateIds" | "youtubeUrl" | "youtubeMusicUrl"
     >
   ) => void;
   onOpenSetup: () => void;
@@ -157,6 +157,9 @@ export function PlaylistPlayer({
   const currentTrackRef = useRef(currentTrack);
   const repeatAllRef = useRef(repeatAll);
   const canResolveRef = useRef(canResolveYouTube);
+  const onSelectTrackRef = useRef(onSelectTrack);
+  const onPlayingChangeRef = useRef(onPlayingChange);
+  const onTrackResolvedRef = useRef(onTrackResolved);
 
   const clearAutoAdvanceTimer = useCallback(() => {
     if (autoAdvanceTimerRef.current) {
@@ -182,27 +185,49 @@ export function PlaylistPlayer({
 
       const candidateIdx = idx + delta;
       if (candidateIdx >= 0 && candidateIdx < list.length) {
-        onSelectTrack(list[candidateIdx].id);
+        onSelectTrackRef.current(list[candidateIdx].id);
         return;
       }
 
       if (delta === 1 && candidateIdx >= list.length) {
         if (repeatAllRef.current && list.length > 0) {
-          onSelectTrack(list[0].id);
+          onSelectTrackRef.current(list[0].id);
         } else {
-          onPlayingChange(false);
+          onPlayingChangeRef.current(false);
           setNotice("마지막 곡까지 재생을 완료했습니다.");
         }
       }
     },
-    [clearAutoAdvanceTimer, onPlayingChange, onSelectTrack]
+    [clearAutoAdvanceTimer]
+  );
+
+  const scheduleSkipToNext = useCallback(
+    (
+      message: string,
+      allFailedMessage: string,
+      delayMs = 1100
+    ) => {
+      consecutiveSkipsRef.current += 1;
+      if (consecutiveSkipsRef.current >= tracksRef.current.length) {
+        onPlayingChangeRef.current(false);
+        setNotice(allFailedMessage);
+        return;
+      }
+
+      setNotice(message);
+      clearAutoAdvanceTimer();
+      autoAdvanceTimerRef.current = setTimeout(() => {
+        stepToAdjacent(1, "skip");
+      }, delayMs);
+    },
+    [clearAutoAdvanceTimer, stepToAdjacent]
   );
 
   const resolveSingleTrack = useCallback(
     async (
       track: PlaylistTrack,
       excludeIds: string[]
-    ): Promise<PlaylistTrack["youtubeVideoId"]> => {
+    ): Promise<{ videoId: PlaylistTrack["youtubeVideoId"]; error?: string }> => {
       setResolving(true);
       try {
         const res = await fetch("/api/youtube/resolve", {
@@ -213,30 +238,34 @@ export function PlaylistPlayer({
             excludeVideoIds: excludeIds,
           }),
         });
-        if (!res.ok) return null;
-        const data = (await res.json()) as {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
           resolved?: Record<
             string,
             {
               youtubeVideoId: string;
+              youtubeCandidateIds?: string[];
               youtubeUrl: string;
               youtubeMusicUrl: string;
             }
           >;
         };
+        if (!res.ok) {
+          return { videoId: null, error: data.error };
+        }
         const match = data.resolved?.[track.id];
         if (match?.youtubeVideoId) {
-          onTrackResolved(track.id, match);
-          return match.youtubeVideoId;
+          onTrackResolvedRef.current(track.id, match);
+          return { videoId: match.youtubeVideoId };
         }
-        return null;
+        return { videoId: null };
       } catch {
-        return null;
+        return { videoId: null };
       } finally {
         setResolving(false);
       }
     },
-    [onTrackResolved]
+    []
   );
 
   const handlePlayerStateChange = useCallback(
@@ -246,15 +275,15 @@ export function PlaylistPlayer({
       if (state === ytState.PLAYING) {
         consecutiveSkipsRef.current = 0;
         setNotice(null);
-        onPlayingChange(true);
+        onPlayingChangeRef.current(true);
       } else if (state === ytState.PAUSED) {
-        onPlayingChange(false);
+        onPlayingChangeRef.current(false);
       } else if (state === ytState.ENDED) {
         consecutiveSkipsRef.current = 0;
         stepToAdjacent(1, "ended");
       }
     },
-    [onPlayingChange, stepToAdjacent]
+    [stepToAdjacent]
   );
 
   const handlePlayerError = useCallback(async () => {
@@ -265,37 +294,45 @@ export function PlaylistPlayer({
       failedVideoIdsRef.current.add(cur.youtubeVideoId);
     }
 
-    // Try finding one embeddable alternative video first before skipping
+    // 1. Try next pre-fetched embeddable candidate locally (0 extra API quota)
+    const nextLocalCandidate = cur.youtubeCandidateIds?.find(
+      (id) => !failedVideoIdsRef.current.has(id)
+    );
+    if (nextLocalCandidate) {
+      setNotice("외부 재생이 제한되어 다른 후보 영상으로 전환 중...");
+      onTrackResolvedRef.current(cur.id, {
+        youtubeVideoId: nextLocalCandidate,
+        youtubeCandidateIds: cur.youtubeCandidateIds,
+        youtubeUrl: `https://www.youtube.com/watch?v=${nextLocalCandidate}`,
+        youtubeMusicUrl: `https://music.youtube.com/watch?v=${nextLocalCandidate}`,
+      });
+      return;
+    }
+
+    // 2. Fallback: query server once with all failed video IDs excluded
+    let resolveError: string | undefined;
     if (canResolveRef.current && !retriedTrackIdsRef.current.has(cur.id)) {
       retriedTrackIdsRef.current.add(cur.id);
       setNotice("외부 재생이 제한된 영상이라 대체 영상을 찾는 중...");
-      const altId = await resolveSingleTrack(
+      const result = await resolveSingleTrack(
         cur,
         Array.from(failedVideoIdsRef.current)
       );
-      if (altId && currentTrackRef.current?.id === cur.id) {
+      resolveError = result.error;
+      if (result.videoId && currentTrackRef.current?.id === cur.id) {
         setNotice(null);
         return;
       }
     }
 
-    consecutiveSkipsRef.current += 1;
-    if (consecutiveSkipsRef.current >= tracksRef.current.length) {
-      onPlayingChange(false);
-      setNotice(
+    scheduleSkipToNext(
+      resolveError
+        ? `${resolveError} 다음 곡으로 이동합니다.`
+        : `"${cur.title}" 영상은 외부 재생이 제한되어 다음 곡으로 이동합니다.`,
+      resolveError ||
         "현재 재생 가능한 임베드 영상이 없어 대기 중입니다. 각 트랙의 YT Music 버튼으로 들을 수 있습니다."
-      );
-      return;
-    }
-
-    setNotice(
-      `"${cur.title}" 영상은 외부 재생이 제한되어 다음 곡으로 이동합니다.`
     );
-    clearAutoAdvanceTimer();
-    autoAdvanceTimerRef.current = setTimeout(() => {
-      stepToAdjacent(1, "skip");
-    }, 1100);
-  }, [clearAutoAdvanceTimer, onPlayingChange, resolveSingleTrack, stepToAdjacent]);
+  }, [resolveSingleTrack, scheduleSkipToNext]);
 
   const handlePlayerStateChangeRef = useRef(handlePlayerStateChange);
   const handlePlayerErrorRef = useRef(handlePlayerError);
@@ -305,6 +342,9 @@ export function PlaylistPlayer({
     currentTrackRef.current = currentTrack;
     repeatAllRef.current = repeatAll;
     canResolveRef.current = canResolveYouTube;
+    onSelectTrackRef.current = onSelectTrack;
+    onPlayingChangeRef.current = onPlayingChange;
+    onTrackResolvedRef.current = onTrackResolved;
     handlePlayerStateChangeRef.current = handlePlayerStateChange;
     handlePlayerErrorRef.current = handlePlayerError;
   }, [
@@ -312,58 +352,70 @@ export function PlaylistPlayer({
     currentTrack,
     handlePlayerError,
     handlePlayerStateChange,
+    onPlayingChange,
+    onSelectTrack,
+    onTrackResolved,
     repeatAll,
     tracks,
   ]);
 
+  const activeTrackKey = currentTrack?.id ?? null;
+  const currentVideoId = currentTrack?.youtubeVideoId ?? null;
+
+  // Clear pending skip timer only when the active track changes
+  useEffect(() => {
+    clearAutoAdvanceTimer();
+  }, [activeTrackKey, clearAutoAdvanceTimer]);
+
   // Resolve missing youtubeVideoId on demand when navigating to track #13+ or unresolved track
   useEffect(() => {
-    if (!currentTrack) return;
-    if (currentTrack.youtubeVideoId) return;
+    if (!currentTrack || currentTrack.youtubeVideoId) return;
 
-    clearAutoAdvanceTimer();
-
-    if (
-      canResolveYouTube &&
-      !resolvedAttemptedIdsRef.current.has(currentTrack.id)
-    ) {
-      resolvedAttemptedIdsRef.current.add(currentTrack.id);
+    if (canResolveYouTube && !resolvedAttemptedIdsRef.current.has(currentTrack.id)) {
+      const targetTrack = currentTrack;
       const timer = setTimeout(() => {
+        if (currentTrackRef.current?.id !== targetTrack.id) return;
+        resolvedAttemptedIdsRef.current.add(targetTrack.id);
         void resolveSingleTrack(
-          currentTrack,
+          targetTrack,
           Array.from(failedVideoIdsRef.current)
-        ).then((foundId) => {
-          if (!foundId && currentTrackRef.current?.id === currentTrack.id) {
-            consecutiveSkipsRef.current += 1;
-            if (consecutiveSkipsRef.current >= tracksRef.current.length) {
-              onPlayingChange(false);
-              setNotice(
+        ).then(({ videoId, error }) => {
+          if (!videoId && currentTrackRef.current?.id === targetTrack.id) {
+            scheduleSkipToNext(
+              error
+                ? `${error} 다음 곡으로 넘어갑니다.`
+                : `"${targetTrack.title}" 매칭 영상을 찾지 못해 다음 곡으로 넘어갑니다.`,
+              error ||
                 "재생 가능한 YouTube 영상을 찾지 못했습니다. 트랙의 YT Music 검색 링크를 이용해 주세요."
-              );
-              return;
-            }
-            setNotice(
-              `"${currentTrack.title}" 매칭 영상을 찾지 못해 다음 곡으로 넘어갑니다.`
             );
-            autoAdvanceTimerRef.current = setTimeout(() => {
-              stepToAdjacent(1, "skip");
-            }, 1100);
           }
         });
       }, 0);
       return () => clearTimeout(timer);
     }
+
+    // Already attempted before or cannot resolve while other tracks are playable -> skip cleanly
+    const hasAnyPlayable = tracksRef.current.some((t) => Boolean(t.youtubeVideoId));
+    if (canResolveYouTube || hasAnyPlayable) {
+      const timer = setTimeout(() => {
+        if (currentTrackRef.current?.id !== currentTrack.id) return;
+        scheduleSkipToNext(
+          `"${currentTrack.title}" 재생 가능한 영상이 없어 다음 곡으로 넘어갑니다.`,
+          "재생 가능한 YouTube 영상을 찾지 못했습니다. 트랙의 YT Music 검색 링크를 이용해 주세요."
+        );
+      }, 100);
+      return () => clearTimeout(timer);
+    }
   }, [
+    activeTrackKey,
     canResolveYouTube,
-    clearAutoAdvanceTimer,
     currentTrack,
-    onPlayingChange,
+    currentVideoId,
     resolveSingleTrack,
-    stepToAdjacent,
+    scheduleSkipToNext,
   ]);
 
   // Initialize YT.Player once on first available videoId, then reuse loadVideoById
-  const currentVideoId = currentTrack?.youtubeVideoId ?? null;
   useEffect(() => {
     if (!currentVideoId || !hostWrapperRef.current) return;
 

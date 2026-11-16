@@ -181,7 +181,7 @@ export function PlaylistWorkspace({
     trackId: string,
     patch: Pick<
       PlaylistTrack,
-      "youtubeVideoId" | "youtubeUrl" | "youtubeMusicUrl"
+      "youtubeVideoId" | "youtubeCandidateIds" | "youtubeUrl" | "youtubeMusicUrl"
     >
   ) => {
     onUpdatePlaylist({

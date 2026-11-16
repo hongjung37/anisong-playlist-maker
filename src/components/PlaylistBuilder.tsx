@@ -183,6 +183,7 @@ export function PlaylistBuilder({
   onGenerate,
 }: PlaylistBuilderProps) {
   const [familiarityLevel, setFamiliarityLevel] = useState<FamiliarityLevel>(3);
+  const [useTasteDna, setUseTasteDna] = useState<boolean>(true);
   const [seeds, setSeeds] = useState<string[]>(["봇치 더 록!"]);
   const [seedInput, setSeedInput] = useState("");
   const [searchResults, setSearchResults] = useState<AnimeSearchItem[]>([]);
@@ -287,12 +288,13 @@ export function PlaylistBuilder({
       excludeRecentTurns: excludeRecentEnabled ? recentExcludeTurns : 0,
       prompt,
       familiarityLevel,
-      tasteProfile: tasteProfile
-        ? {
-            dna: tasteProfile.dna,
-            knownTracks: tasteProfile.knownTracks,
-          }
-        : null,
+      tasteProfile:
+        useTasteDna && tasteProfile
+          ? {
+              dna: tasteProfile.dna,
+              knownTracks: tasteProfile.knownTracks,
+            }
+          : null,
     });
   };
 
@@ -323,8 +325,10 @@ export function PlaylistBuilder({
         <TasteProfilePanel
           authStatus={authStatus}
           tasteProfile={tasteProfile}
+          useTasteDna={useTasteDna}
           familiarityLevel={familiarityLevel}
           onChangeTasteProfile={onChangeTasteProfile}
+          onToggleUseTasteDna={setUseTasteDna}
           onChangeFamiliarity={setFamiliarityLevel}
           onAddSeed={addSeed}
         />
@@ -711,6 +715,20 @@ export function PlaylistBuilder({
 
       {/* Primary Action */}
       <div className="border-t border-hairline bg-sheet-muted p-5">
+        {tasteProfile && (
+          <div className="mb-2.5 flex items-center justify-between text-[11px]">
+            <span className="text-muted">내 취향 DNA 프롬프트 반영</span>
+            <button
+              type="button"
+              onClick={() => setUseTasteDna((prev) => !prev)}
+              className={`font-semibold transition hover:underline ${
+                useTasteDna ? "text-cobalt-ink" : "text-amber-700 dark:text-amber-300"
+              }`}
+            >
+              {useTasteDna ? "ON (취향 반영 중)" : "OFF (새로운 결로 탐색)"}
+            </button>
+          </div>
+        )}
         <button
           type="submit"
           disabled={loading}

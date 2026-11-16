@@ -149,6 +149,8 @@ export async function POST(request: NextRequest) {
       coverImage: aniListEnriched[idx]?.coverImage ?? track.coverImage,
       year: aniListEnriched[idx]?.year ?? track.year,
       youtubeVideoId: ytEnriched[idx]?.youtubeVideoId ?? track.youtubeVideoId,
+      youtubeCandidateIds:
+        ytEnriched[idx]?.youtubeCandidateIds ?? track.youtubeCandidateIds,
       youtubeUrl: ytEnriched[idx]?.youtubeUrl ?? track.youtubeUrl,
       youtubeMusicUrl: ytEnriched[idx]?.youtubeMusicUrl ?? track.youtubeMusicUrl,
     }));
