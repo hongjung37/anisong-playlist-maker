@@ -282,6 +282,9 @@ export function PlaylistWorkspace({
       );
     } finally {
       setExportingPlatform(null);
+      if (platform === "youtube") {
+        window.dispatchEvent(new Event("anitune:quota-updated"));
+      }
     }
   };
 

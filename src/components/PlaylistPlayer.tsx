@@ -226,9 +226,12 @@ export function PlaylistPlayer({
   const resolveSingleTrack = useCallback(
     async (
       track: PlaylistTrack,
-      excludeIds: string[]
+      excludeIds: string[],
+      options?: { silent?: boolean }
     ): Promise<{ videoId: PlaylistTrack["youtubeVideoId"]; error?: string }> => {
-      setResolving(true);
+      if (!options?.silent) {
+        setResolving(true);
+      }
       try {
         const res = await fetch("/api/youtube/resolve", {
           method: "POST",
@@ -262,7 +265,10 @@ export function PlaylistPlayer({
       } catch {
         return { videoId: null };
       } finally {
-        setResolving(false);
+        if (!options?.silent) {
+          setResolving(false);
+        }
+        window.dispatchEvent(new Event("anitune:quota-updated"));
       }
     },
     []
@@ -414,6 +420,26 @@ export function PlaylistPlayer({
     resolveSingleTrack,
     scheduleSkipToNext,
   ]);
+
+  // Silently prefetch only the immediate next unresolved track while current track plays
+  useEffect(() => {
+    if (!currentVideoId || !canResolveYouTube || !nextTrack) return;
+    if (nextTrack.youtubeVideoId) return;
+    if (resolvedAttemptedIdsRef.current.has(nextTrack.id)) return;
+
+    const targetNext = nextTrack;
+    const timer = setTimeout(() => {
+      if (resolvedAttemptedIdsRef.current.has(targetNext.id)) return;
+      resolvedAttemptedIdsRef.current.add(targetNext.id);
+      void resolveSingleTrack(
+        targetNext,
+        Array.from(failedVideoIdsRef.current),
+        { silent: true }
+      );
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [canResolveYouTube, currentVideoId, nextTrack, resolveSingleTrack]);
 
   // Initialize YT.Player once on first available videoId, then reuse loadVideoById
   useEffect(() => {

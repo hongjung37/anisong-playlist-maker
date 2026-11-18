@@ -14,6 +14,7 @@ import {
 import { PlaylistBuilder } from "@/components/PlaylistBuilder";
 import { PlaylistWorkspace } from "@/components/PlaylistWorkspace";
 import { SetupModal } from "@/components/SetupModal";
+import { YouTubeQuotaBadge } from "@/components/YouTubeQuotaBadge";
 import type {
   AuthStatus,
   GeneratedPlaylist,
@@ -21,6 +22,7 @@ import type {
   PlaylistHistoryEntry,
   StoredUserData,
   TasteProfile,
+  YouTubeQuotaStatus,
 } from "@/types/playlist";
 
 const LEGACY_TASTE_KEY = "anitune_taste_profile_v1";
@@ -28,6 +30,9 @@ const LEGACY_PLAYLIST_KEY = "anitune_last_playlist_v1";
 
 export default function HomePage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [youtubeQuota, setYoutubeQuota] = useState<YouTubeQuotaStatus | null>(
+    null
+  );
   const [tasteProfile, setTasteProfile] = useState<TasteProfile | null>(null);
   const [playlist, setPlaylist] = useState<GeneratedPlaylist | null>(null);
   const [playlistHistory, setPlaylistHistory] = useState<
@@ -53,6 +58,9 @@ export default function HomePage() {
       if (authRes.ok) {
         const authData = (await authRes.json()) as AuthStatus;
         setAuthStatus(authData);
+        if (authData.youtubeQuota) {
+          setYoutubeQuota(authData.youtubeQuota);
+        }
       }
 
       if (stateRes.ok) {
@@ -133,8 +141,22 @@ export default function HomePage() {
 
     void hydrateClientState();
 
+    const refreshQuota = async () => {
+      try {
+        const res = await fetch("/api/youtube/quota", { cache: "no-store" });
+        if (res.ok && active) {
+          const data = (await res.json()) as YouTubeQuotaStatus;
+          setYoutubeQuota(data);
+        }
+      } catch {
+        // Ignore transient errors
+      }
+    };
+    window.addEventListener("anitune:quota-updated", refreshQuota);
+
     return () => {
       active = false;
+      window.removeEventListener("anitune:quota-updated", refreshQuota);
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, [fetchAuthAndUserState]);
@@ -194,6 +216,7 @@ export default function HomePage() {
       );
     } finally {
       setLoading(false);
+      window.dispatchEvent(new Event("anitune:quota-updated"));
     }
   };
 
@@ -222,6 +245,12 @@ export default function HomePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* YouTube Quota Indicator */}
+            <YouTubeQuotaBadge
+              quota={youtubeQuota}
+              onUpdateQuota={setYoutubeQuota}
+            />
+
             {/* YouTube Account */}
             {authStatus?.youtubeConnected ? (
               <div className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-sheet-muted px-2.5 py-1 text-xs font-medium text-ink">
