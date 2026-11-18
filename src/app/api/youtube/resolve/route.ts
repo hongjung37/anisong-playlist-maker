@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getValidYouTubeSession } from "@/lib/oauth";
 import { searchYouTubeTrack, YouTubeApiError } from "@/lib/youtube";
+import {
+  lookupCachedYouTubeMatch,
+  saveCachedYouTubeBatch,
+} from "@/lib/youtube-cache";
+import { recordYouTubeCacheHit } from "@/lib/youtube-quota";
 
 const ResolveSchema = z.object({
   tracks: z
@@ -33,6 +38,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const resolved: Record<
+      string,
+      {
+        youtubeVideoId: string;
+        youtubeCandidateIds: string[];
+        youtubeUrl: string;
+        youtubeMusicUrl: string;
+      }
+    > = {};
+
+    const cacheMissTracks: typeof parsed.data.tracks = [];
+
+    await Promise.all(
+      parsed.data.tracks.map(async (track) => {
+        const cached = await lookupCachedYouTubeMatch(
+          track,
+          parsed.data.excludeVideoIds
+        );
+        if (cached) {
+          await recordYouTubeCacheHit(1);
+          resolved[track.id] = {
+            youtubeVideoId: cached.videoId,
+            youtubeCandidateIds: cached.candidateVideoIds,
+            youtubeUrl: `https://www.youtube.com/watch?v=${cached.videoId}`,
+            youtubeMusicUrl: `https://music.youtube.com/watch?v=${cached.videoId}`,
+          };
+        } else {
+          cacheMissTracks.push(track);
+        }
+      })
+    );
+
+    if (cacheMissTracks.length === 0) {
+      return NextResponse.json({ resolved, configured: true });
+    }
+
     const ytSession = await getValidYouTubeSession();
     const auth = ytSession
       ? { accessToken: ytSession.accessToken }
@@ -51,18 +92,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const resolved: Record<
-      string,
-      {
-        youtubeVideoId: string;
-        youtubeCandidateIds: string[];
-        youtubeUrl: string;
-        youtubeMusicUrl: string;
-      }
-    > = {};
+    const newlyFound: Array<{
+      track: (typeof parsed.data.tracks)[number];
+      match: { videoId: string; candidateVideoIds: string[]; title: string };
+    }> = [];
 
     await Promise.all(
-      parsed.data.tracks.map(async (track) => {
+      cacheMissTracks.map(async (track) => {
         const match = await searchYouTubeTrack(track, auth, {
           embeddableOnly: true,
           excludeVideoIds: parsed.data.excludeVideoIds,
@@ -70,6 +106,7 @@ export async function POST(request: NextRequest) {
           throwOnError: true,
         });
         if (match) {
+          newlyFound.push({ track, match });
           resolved[track.id] = {
             youtubeVideoId: match.videoId,
             youtubeCandidateIds: match.candidateVideoIds,
@@ -79,6 +116,12 @@ export async function POST(request: NextRequest) {
         }
       })
     );
+
+    if (newlyFound.length > 0) {
+      await saveCachedYouTubeBatch(newlyFound).catch((err) => {
+        console.warn("[youtube-cache] Failed to persist resolved tracks:", err);
+      });
+    }
 
     return NextResponse.json({ resolved, configured: true });
   } catch (err) {

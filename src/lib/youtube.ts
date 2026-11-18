@@ -1,4 +1,13 @@
 import crypto from "node:crypto";
+import {
+  lookupCachedYouTubeMatch,
+  saveCachedYouTubeBatch,
+} from "@/lib/youtube-cache";
+import {
+  markYouTubeQuotaExhausted,
+  recordYouTubeCacheHit,
+  recordYouTubeQuotaUsage,
+} from "@/lib/youtube-quota";
 import type {
   ExportTrackResult,
   KnownTrackItem,
@@ -15,6 +24,7 @@ interface YouTubeVideoDetailItem {
   id?: string;
   status?: { embeddable?: boolean };
   contentDetails?: {
+    duration?: string;
     regionRestriction?: {
       allowed?: string[];
       blocked?: string[];
@@ -25,6 +35,14 @@ interface YouTubeVideoDetailItem {
 interface VideoEmbedStatus {
   embeddable: boolean;
   blockedInKr: boolean;
+  durationSec: number;
+}
+
+function parseIsoDurationSec(iso?: string): number {
+  if (!iso) return 0;
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0);
 }
 
 function buildSearchUrls(track: PlaylistTrack) {
@@ -52,20 +70,102 @@ function decodeHtmlEntities(str: string): string {
 
 function isLowQualityMatch(title: string): boolean {
   const lower = title.toLowerCase();
-  return (
+  if (
     lower.includes("nightcore") ||
+    lower.includes("sped up") ||
+    lower.includes("slowed") ||
     lower.includes("1 hour") ||
     lower.includes("1시간") ||
     lower.includes("hour loop") ||
     lower.includes("時間耐久") ||
+    lower.includes("作業用") ||
+    lower.includes("bgm集") ||
+    lower.includes("op集") ||
+    lower.includes("ed集") ||
     lower.includes("karaoke") ||
+    lower.includes("nicokara") ||
+    lower.includes("ニコカラ") ||
+    lower.includes("dam音源") ||
+    lower.includes("joysound") ||
     lower.includes("off vocal") ||
+    lower.includes("on vocal") ||
     lower.includes("instrumental") ||
-    lower.includes("piano cover") ||
+    lower.includes("ガイドメロディ") ||
+    lower.includes("반주") ||
+    lower.includes("노래방") ||
+    lower.includes("금영") ||
+    lower.includes("태진") ||
+    lower.includes("カラオケ") ||
+    lower.includes("オフボーカル") ||
+    lower.includes("オフボ") ||
+    lower.includes("インスト") ||
+    lower.includes("歌なし") ||
+    lower.includes("歌無し") ||
+    lower.includes("ボーカルなし") ||
+    lower.includes("弾いてみた") ||
+    lower.includes("叩いてみた") ||
+    lower.includes("吹いてみた") ||
+    lower.includes("피아노 커버") ||
+    lower.includes("기타 커버") ||
+    lower.includes("드럼 커버") ||
+    lower.includes("with guitar") ||
+    lower.includes("tab譜") ||
+    lower.includes("music box") ||
+    lower.includes("オルゴール") ||
+    lower.includes("8bit") ||
+    lower.includes("chiptune") ||
     lower.includes("8d audio") ||
     lower.includes("#shorts") ||
-    lower.includes("視聴動画")
+    lower.includes("視聴動画") ||
+    lower.includes("medley") ||
+    lower.includes("メドレー") ||
+    lower.includes("메들리")
+  ) {
+    return true;
+  }
+
+  return (
+    /\bmr\b/i.test(title) ||
+    /\binst\.?\b/i.test(title) ||
+    /\b(piano|guitar|bass|drum|violin|sax|flute|acoustic)\s*covers?\b/i.test(title)
   );
+}
+
+function isLivePerformance(videoTitle: string, trackTitle: string): boolean {
+  if (/\blive\b|라이브|ライブ/i.test(trackTitle)) {
+    return false;
+  }
+  return /\blive\b|라이브|ライブ|first\s*take|animelo|アニサマ|武道館|budokan|concert|コンサート|\btour\b|\bfes\.?\b/i.test(
+    videoTitle
+  );
+}
+
+function isCoverMatch(
+  videoTitle: string,
+  channelTitle: string,
+  trackTitle: string,
+  trackArtist: string,
+  animeName = ""
+): boolean {
+  const combinedTrack = `${trackTitle} ${trackArtist} ${animeName}`;
+  const combinedVideo = `${videoTitle} ${channelTitle}`;
+
+  if (
+    !/\bcovers?\b|커버|歌ってみた/i.test(combinedTrack) &&
+    /\bcovers?\b|\bcovered\s+by\b|커버|歌ってみた|aiカバー|ai歌ってみた|ai\s*커버|ai\s*합성|\b(ai\s*cover|rvc)\b|ai[^\s]{1,12}(?:たちの|が歌う)/i.test(
+      combinedVideo
+    )
+  ) {
+    return true;
+  }
+
+  const vtuberPattern =
+    /切り抜き|歌枠|弾き語り|hololive|ホロライブ|ホロ音|にじさんじ|nijisanji|vtuber|ぶいすぽ|vspo/i;
+  if (!vtuberPattern.test(combinedTrack) && vtuberPattern.test(combinedVideo)) {
+    return true;
+  }
+
+  return false;
 }
 
 function isTopicChannel(channelTitle: string): boolean {
@@ -137,6 +237,8 @@ async function queryYouTubeSearch(
   const headers = buildAuthHeadersAndParams(params, auth);
   if (!headers) return [];
 
+  await recordYouTubeQuotaUsage({ units: 100, category: "search" });
+
   const res = await fetch(
     `https://www.googleapis.com/youtube/v3/search?${params.toString()}`,
     { headers, cache: "no-store" }
@@ -145,6 +247,9 @@ async function queryYouTubeSearch(
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
     console.warn(`[YouTube search.list] HTTP ${res.status} for "${query}": ${errText.slice(0, 200)}`);
+    if (res.status === 403 && /quotaExceeded|dailyLimitExceeded/i.test(errText)) {
+      await markYouTubeQuotaExhausted();
+    }
     if (options.throwOnError && (res.status === 401 || res.status === 403)) {
       throw new YouTubeApiError(
         res.status,
@@ -159,7 +264,7 @@ async function queryYouTubeSearch(
   return data.items ?? [];
 }
 
-async function fetchVideoEmbedStatuses(
+export async function fetchVideoEmbedStatuses(
   videoIds: string[],
   auth: { accessToken?: string; apiKey?: string }
 ): Promise<Map<string, VideoEmbedStatus>> {
@@ -175,6 +280,7 @@ async function fetchVideoEmbedStatuses(
   if (!headers) return statusMap;
 
   try {
+    await recordYouTubeQuotaUsage({ units: 1, category: "read" });
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
       { headers, cache: "no-store" }
@@ -192,6 +298,7 @@ async function fetchVideoEmbedStatuses(
       statusMap.set(item.id, {
         embeddable: item.status?.embeddable !== false,
         blockedInKr,
+        durationSec: parseIsoDurationSec(item.contentDetails?.duration),
       });
     }
   } catch {
@@ -219,6 +326,8 @@ interface CollectedCandidate {
   musicOnly: boolean;
   rankIndex: number;
   lowQuality: boolean;
+  livePerformance: boolean;
+  coverMatch: boolean;
   topicChannel: boolean;
 }
 
@@ -230,6 +339,7 @@ export async function searchYouTubeTrack(
     excludeVideoIds?: string[];
     maxStepCount?: number;
     maxCandidates?: number;
+    stopAtGoodCount?: number;
     throwOnError?: boolean;
   }
 ): Promise<{
@@ -241,6 +351,7 @@ export async function searchYouTubeTrack(
   const embeddableOnly = Boolean(options?.embeddableOnly);
   const maxStepCount = options?.maxStepCount ?? (embeddableOnly ? 4 : 2);
   const maxCandidates = options?.maxCandidates ?? 8;
+  const stopAtGoodCount = options?.stopAtGoodCount ?? 2;
 
   const cleanArtist = cleanSearchText(track.artist);
   const cleanAnimeJp = cleanSearchText(track.animeTitleJapanese || "");
@@ -309,6 +420,9 @@ export async function searchYouTubeTrack(
   const normTitles = [track.title, track.titleRomaji]
     .map(normalizeMatchText)
     .filter((t) => t.length >= 2);
+  const normArtists = [track.artist, track.artistRomaji]
+    .map(normalizeMatchText)
+    .filter((a) => a.length >= 2);
 
   for (const step of searchSteps) {
     const items = await queryYouTubeSearch(step.query, auth, {
@@ -331,6 +445,14 @@ export async function searchYouTubeTrack(
         musicOnly: step.musicOnly,
         rankIndex,
         lowQuality: isLowQualityMatch(title),
+        livePerformance: isLivePerformance(title, track.title),
+        coverMatch: isCoverMatch(
+          title,
+          channelTitle,
+          track.title,
+          track.artist,
+          animeName
+        ),
         topicChannel: isTopicChannel(channelTitle),
       });
       newIds.push(videoId);
@@ -343,18 +465,21 @@ export async function searchYouTubeTrack(
       }
     }
 
-    // Stop early only when we have enough clean, embeddable candidates.
-    // For embeddable playback, require at least 2 non-Topic clean candidates
-    // so Topic-only / blocked official uploads don't block anime fan/MV uploads.
+    // Stop early only when we have enough clean, studio-original, embeddable candidates.
     const goodCount = Array.from(collected.values()).filter((c) => {
-      if (c.lowQuality) return false;
+      if (c.lowQuality || c.livePerformance || c.coverMatch) return false;
       if (!embeddableOnly) return true;
       const st = verifiedStatus.get(c.videoId);
-      if (st && (!st.embeddable || st.blockedInKr)) return false;
+      if (st) {
+        if (!st.embeddable || st.blockedInKr) return false;
+        if (st.durationSec > 0 && (st.durationSec < 45 || st.durationSec > 600)) {
+          return false;
+        }
+      }
       return !c.topicChannel;
     }).length;
 
-    if (goodCount >= 2) {
+    if (goodCount >= stopAtGoodCount) {
       break;
     }
   }
@@ -392,16 +517,29 @@ export async function searchYouTubeTrack(
       if (normTitles.some((t) => normTitle.includes(t))) {
         score += 25;
       }
+      const normChannel = normalizeMatchText(c.channelTitle);
+      if (normArtists.some((a) => normChannel.includes(a))) {
+        score += 18;
+      }
       if (c.musicOnly) {
         score += 5;
       }
       if (c.lowQuality) {
         score -= 120;
       }
+      if (c.livePerformance) {
+        score -= 45;
+      }
+      if (c.coverMatch) {
+        score -= 55;
+      }
       if (embeddableOnly) {
         const st = verifiedStatus.get(c.videoId);
         if (st?.blockedInKr) {
           score -= 500;
+        }
+        if (st && st.durationSec > 0 && (st.durationSec < 45 || st.durationSec > 600)) {
+          score -= 150;
         }
         // Slightly prefer non-Topic embeddable uploads while keeping Topic in fallbacks
         score += c.topicChannel ? -12 : 12;
@@ -423,42 +561,155 @@ export async function searchYouTubeTrack(
   };
 }
 
+function findMatchingKnownVideoId(
+  track: PlaylistTrack,
+  knownTracks: KnownTrackItem[]
+): string | null {
+  if (knownTracks.length === 0) return null;
+  const titles = [track.title, track.titleRomaji]
+    .map(normalizeMatchText)
+    .filter((t) => t.length >= 2);
+  const artists = [track.artist, track.artistRomaji]
+    .map(normalizeMatchText)
+    .filter((a) => a.length >= 2);
+
+  for (const known of knownTracks) {
+    if (!known.videoId) continue;
+    const rawNorm = normalizeMatchText(known.rawTitle);
+    if (!rawNorm) continue;
+
+    const strongTitleMatch = titles.some(
+      (t) =>
+        t.length >= 4 &&
+        (rawNorm === t || rawNorm.includes(t) || t.includes(rawNorm))
+    );
+    if (strongTitleMatch) {
+      return known.videoId;
+    }
+
+    const shortTitleMatch = titles.some((t) => rawNorm === t);
+    if (shortTitleMatch && known.channelTitle) {
+      const chNorm = normalizeMatchText(known.channelTitle);
+      if (artists.some((a) => chNorm.includes(a) || a.includes(chNorm))) {
+        return known.videoId;
+      }
+    }
+  }
+  return null;
+}
+
 export async function enrichTracksWithYouTube(
   tracks: PlaylistTrack[],
-  auth: { accessToken?: string; apiKey?: string }
+  auth: { accessToken?: string; apiKey?: string },
+  options?: { knownTracks?: KnownTrackItem[] }
 ): Promise<PlaylistTrack[]> {
-  if (!auth.accessToken && !auth.apiKey) {
-    return tracks.map((track) => ({
-      ...track,
-      ...buildSearchUrls(track),
-    }));
-  }
+  const knownTracks = options?.knownTracks ?? [];
+  const hasAuth = Boolean(auth.accessToken || auth.apiKey);
 
-  // Resolve up to first 12 tracks in parallel batches to keep YouTube quota reasonable
-  const limit = Math.min(tracks.length, 12);
-  const enriched = await Promise.all(
-    tracks.map(async (track, idx) => {
+  // 1. Zero-quota lookup from persistent local YouTube cache for ALL tracks
+  let cacheHits = 0;
+  const afterCache = await Promise.all(
+    tracks.map(async (track) => {
       const fallback = buildSearchUrls(track);
-      if (idx >= limit || track.youtubeVideoId) {
+      if (track.youtubeVideoId) {
         return {
           ...track,
-          youtubeUrl: track.youtubeVideoId
-            ? `https://www.youtube.com/watch?v=${track.youtubeVideoId}`
-            : fallback.youtubeUrl,
-          youtubeMusicUrl: track.youtubeVideoId
-            ? `https://music.youtube.com/watch?v=${track.youtubeVideoId}`
-            : fallback.youtubeMusicUrl,
+          youtubeUrl: `https://www.youtube.com/watch?v=${track.youtubeVideoId}`,
+          youtubeMusicUrl: `https://music.youtube.com/watch?v=${track.youtubeVideoId}`,
         };
+      }
+
+      const cached = await lookupCachedYouTubeMatch(track);
+      if (cached) {
+        cacheHits += 1;
+        return {
+          ...track,
+          youtubeVideoId: cached.videoId,
+          youtubeCandidateIds: cached.candidateVideoIds,
+          youtubeUrl: `https://www.youtube.com/watch?v=${cached.videoId}`,
+          youtubeMusicUrl: `https://music.youtube.com/watch?v=${cached.videoId}`,
+        };
+      }
+
+      return { ...track, ...fallback };
+    })
+  );
+
+  if (cacheHits > 0) {
+    await recordYouTubeCacheHit(cacheHits);
+  }
+
+  if (!hasAuth) {
+    return afterCache;
+  }
+
+  // 2. Reuse videoId from user's knownTracks (verified via single 1-unit videos.list call)
+  const knownCandidates = new Map<number, string>();
+  afterCache.forEach((track, idx) => {
+    if (track.youtubeVideoId) return;
+    const knownId = findMatchingKnownVideoId(track, knownTracks);
+    if (knownId) knownCandidates.set(idx, knownId);
+  });
+
+  const knownStatuses =
+    knownCandidates.size > 0
+      ? await fetchVideoEmbedStatuses(Array.from(knownCandidates.values()), auth)
+      : new Map<string, VideoEmbedStatus>();
+
+  const toSaveToCache: Array<{
+    track: PlaylistTrack;
+    match: { videoId: string; candidateVideoIds?: string[]; title?: string };
+  }> = [];
+
+  const afterKnown = afterCache.map((track, idx) => {
+    const knownId = knownCandidates.get(idx);
+    if (!knownId) return track;
+    const st = knownStatuses.get(knownId);
+    if (st && (!st.embeddable || st.blockedInKr)) {
+      return track;
+    }
+
+    const match = {
+      videoId: knownId,
+      candidateVideoIds: [knownId],
+      title: track.title,
+    };
+    toSaveToCache.push({ track, match });
+    return {
+      ...track,
+      youtubeVideoId: knownId,
+      youtubeCandidateIds: [knownId],
+      youtubeUrl: `https://www.youtube.com/watch?v=${knownId}`,
+      youtubeMusicUrl: `https://music.youtube.com/watch?v=${knownId}`,
+    };
+  });
+
+  // 3. Live search only for first 3 still-unresolved tracks; rest prefetch lazily during playback
+  const LIVE_SEARCH_LIMIT = 3;
+  const unresolvedIndices: number[] = [];
+  afterKnown.forEach((track, idx) => {
+    if (!track.youtubeVideoId && unresolvedIndices.length < LIVE_SEARCH_LIMIT) {
+      unresolvedIndices.push(idx);
+    }
+  });
+  const liveSearchSet = new Set(unresolvedIndices);
+
+  const enriched = await Promise.all(
+    afterKnown.map(async (track, idx) => {
+      if (!liveSearchSet.has(idx)) {
+        return track;
       }
 
       const match = await searchYouTubeTrack(track, auth, {
         embeddableOnly: true,
         maxStepCount: 2,
+        stopAtGoodCount: 1,
       });
       if (!match) {
-        return { ...track, ...fallback };
+        return track;
       }
 
+      toSaveToCache.push({ track, match });
       return {
         ...track,
         youtubeVideoId: match.videoId,
@@ -468,6 +719,12 @@ export async function enrichTracksWithYouTube(
       };
     })
   );
+
+  if (toSaveToCache.length > 0) {
+    await saveCachedYouTubeBatch(toSaveToCache).catch((err) => {
+      console.warn("[youtube-cache] Failed to save batch:", err);
+    });
+  }
 
   return enriched;
 }
@@ -486,6 +743,7 @@ export async function createYouTubePlaylist(params: {
 }> {
   const { accessToken, title, description, privacyStatus, tracks } = params;
 
+  await recordYouTubeQuotaUsage({ units: 50, category: "write" });
   const createRes = await fetch(
     "https://www.googleapis.com/youtube/v3/playlists?part=snippet,status",
     {
@@ -520,10 +778,17 @@ export async function createYouTubePlaylist(params: {
     let matchedTitle = track.title;
 
     if (!videoId) {
-      const match = await searchYouTubeTrack(track, { accessToken });
-      if (match) {
-        videoId = match.videoId;
-        matchedTitle = match.title;
+      const cached = await lookupCachedYouTubeMatch(track);
+      if (cached) {
+        await recordYouTubeCacheHit(1);
+        videoId = cached.videoId;
+        matchedTitle = cached.title;
+      } else {
+        const match = await searchYouTubeTrack(track, { accessToken });
+        if (match) {
+          videoId = match.videoId;
+          matchedTitle = match.title;
+        }
       }
     }
 
@@ -538,6 +803,7 @@ export async function createYouTubePlaylist(params: {
       continue;
     }
 
+    await recordYouTubeQuotaUsage({ units: 50, category: "write" });
     const insertRes = await fetch(
       "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
       {
@@ -595,6 +861,7 @@ export async function listUserYouTubePlaylists(
 
   // 1. Fetch "Likes" special playlist ID from user's channel
   try {
+    await recordYouTubeQuotaUsage({ units: 1, category: "read" });
     const chRes = await fetch(
       "https://www.googleapis.com/youtube/v3/channels?part=contentDetails&mine=true",
       {
@@ -624,6 +891,7 @@ export async function listUserYouTubePlaylists(
   }
 
   // 2. Fetch user's playlists
+  await recordYouTubeQuotaUsage({ units: 1, category: "read" });
   const plRes = await fetch(
     "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=25",
     {
@@ -685,6 +953,7 @@ export async function fetchYouTubePlaylistTracks(params: {
     url.searchParams.set("playlistId", src.id);
     url.searchParams.set("maxResults", "50");
 
+    await recordYouTubeQuotaUsage({ units: 1, category: "read" });
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",

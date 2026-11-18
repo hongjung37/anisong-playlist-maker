@@ -2,7 +2,7 @@ export type ThemeType = "OP" | "ED" | "OST" | "INSERT" | "CHARACTER";
 
 export type EraFilter = "ALL" | "2020s" | "2010s" | "2000s" | "classic";
 
-export type FamiliarityLevel = 1 | 2 | 3 | 4;
+export type FamiliarityLevel = 1 | 2 | 3 | 4 | 5;
 
 export type PopularityLevel = 1 | 2 | 3 | 4;
 
@@ -144,6 +144,20 @@ export interface StoredUserData {
   playlistHistory: PlaylistHistoryEntry[];
 }
 
+export interface YouTubeQuotaStatus {
+  ptDate: string;
+  dailyLimit: number;
+  usedUnits: number;
+  remainingUnits: number;
+  exhausted: boolean;
+  searchCalls: number;
+  writeCalls: number;
+  readCalls: number;
+  cacheHits: number;
+  updatedAt: string;
+  nextResetKstLabel: string;
+}
+
 export interface AuthStatus {
   geminiConfigured: boolean;
   youtubeConfigured: boolean;
@@ -154,4 +168,5 @@ export interface AuthStatus {
   spotifyConnected: boolean;
   spotifyDisplayName?: string;
   appUrl: string;
+  youtubeQuota?: YouTubeQuotaStatus;
 }
