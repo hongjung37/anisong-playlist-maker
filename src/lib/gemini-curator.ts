@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { buildTrackCacheKeys } from "@/lib/youtube-cache";
 import type {
   ExcludedTrackRef,
   FamiliarityLevel,
@@ -252,6 +253,8 @@ function describeFamiliarity(
       const target = Math.max(1, Math.round(trackCount * 0.75));
       return `4단계 (내 애청곡 재구성 ~75%): 전체 ${trackCount}곡 중 약 ${target}곡을 사용자 라이브러리(knownTracks) 속 검증된 곡들로 선별해 라이브 셋리 흐름으로 재배치하고, 나머지 약 ${trackCount - target}곡만 연결감 좋은 새 곡으로 보충하세요.`;
     }
+    case 5:
+      return `5단계 (내 애청곡 100% — 라이브러리 전용 셋리): 반드시 아래 사용자 기존 라이브러리(knownTracks)에 포함된 곡들만 사용해서 ${trackCount}곡 셋리를 구성하세요. 라이브러리에 없는 새로운 곡은 넣지 말고, 요청한 분위기·장르·흐름(오프닝/빌드업/피크/앵콜)에 가장 잘 맞게 배치하세요. (단, 라이브러리의 애니송 수가 ${trackCount}곡보다 부족할 때만 부족분만 결이 맞는 곡으로 채우세요.)`;
     case 3:
     default: {
       const target = Math.max(1, Math.round(trackCount * 0.5));
@@ -280,7 +283,8 @@ function describePopularity(level: PopularityLevel): string {
 
 function hydrateTracks(
   rawTracks: z.infer<typeof TrackSchema>[],
-  knownTracks: KnownTrackItem[] = []
+  knownTracks: KnownTrackItem[] = [],
+  userKnownKeys: Set<string> = new Set()
 ): PlaylistTrack[] {
   const seen = new Set<string>();
   const result: PlaylistTrack[] = [];
@@ -290,6 +294,12 @@ function hydrateTracks(
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
+    const inKnownList =
+      knownTracks.length > 0 && isTrackInKnownLibrary(item, knownTracks);
+    const inUserKnownCache =
+      userKnownKeys.size > 0 &&
+      buildTrackCacheKeys(item).some((k) => userKnownKeys.has(k));
+
     const urls = makePlatformSearchUrls(item);
     result.push({
       id: `trk-${result.length + 1}-${Buffer.from(dedupeKey)
@@ -297,8 +307,8 @@ function hydrateTracks(
         .slice(0, 8)}`,
       ...item,
       inUserLibrary:
-        knownTracks.length > 0
-          ? isTrackInKnownLibrary(item, knownTracks)
+        knownTracks.length > 0 || userKnownKeys.size > 0
+          ? inKnownList || inUserKnownCache
           : undefined,
       coverImage: null,
       youtubeVideoId: null,
@@ -327,9 +337,13 @@ function describeEra(era: PlaylistGenerateRequest["era"]): string {
 
 export async function generatePlaylistWithGemini(
   input: PlaylistGenerateRequest,
-  options?: { excludedRecentTracks?: ExcludedTrackRef[] }
+  options?: {
+    excludedRecentTracks?: ExcludedTrackRef[];
+    userKnownKeys?: Set<string>;
+  }
 ): Promise<GeneratedPlaylist> {
   const excludedRecentTracks = options?.excludedRecentTracks ?? [];
+  const userKnownKeys = options?.userKnownKeys ?? new Set<string>();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return generateFallbackPlaylist(input, options);
@@ -348,7 +362,8 @@ export async function generatePlaylistWithGemini(
 5. 중복된 곡은 넣지 말고, 요청한 트랙 수에 정확히 맞추세요.
 6. 인지도/대중성(메이저↔마이너 4단계) 지침을 반드시 반영하되, 마이너 단계일수록 존재하지 않는 곡이나 불확실한 제목을 지어내지 말고 실존과 공식 음원명이 확실한 곡만 고르세요.
 7. 선호 장르/스타일(예: 전파송, 기타록, 심포닉 오케스트라, 유로비트, 보컬로이드계 등)이 지정되면 편곡 문법과 사운드 질감이 해당 장르에 정확히 부합하는 곡을 우선 선택하세요.
-8. [최근 생성 플레이리스트 중복 제외 목록]이 주어지면 해당 곡들은 직전/최근 생성 셋리에 이미 들어간 곡이므로 이번 셋리에서 반드시 제외하세요.`;
+8. [최근 생성 플레이리스트 중복 제외 목록]이 주어지면 해당 곡들은 직전/최근 생성 셋리에 이미 들어간 곡이므로 이번 셋리에서 반드시 제외하세요.
+9. 사용자 라이브러리(knownTracks)에 일반 J-POP·보컬로이드·유튜브 커버 등 애니메이션 타이업이 아닌 곡이 섞여 있더라도, 선곡 결과에는 반드시 실제 애니메이션 공식 타이업(OP/ED/OST/삽입곡/캐릭터송)인 곡만 포함하세요. 비애니송을 끼워 넣거나 타이업을 지어내지 마세요.`;
 
   const knownTracks = input.tasteProfile?.knownTracks ?? [];
   const tasteDna = input.tasteProfile?.dna ?? null;
@@ -424,7 +439,7 @@ ${excludedBlock}${tasteContextBlock}`;
   }
 
   const parsed = GeminiPlaylistSchema.parse(JSON.parse(text));
-  let hydrated = hydrateTracks(parsed.tracks, knownTracks);
+  let hydrated = hydrateTracks(parsed.tracks, knownTracks, userKnownKeys);
 
   // Deterministically exclude any track from recent generated playlists when enabled
   if (excludedRecentTracks.length > 0) {
@@ -436,11 +451,22 @@ ${excludedBlock}${tasteContextBlock}`;
     }
   }
 
-  // Enforce strict 0% familiarity when level 1 is selected
-  if (knownTracks.length > 0 && familiarityLevel === 1) {
+  // Enforce strict 0% familiarity for level 1 and 100% library-only for level 5
+  if (
+    (knownTracks.length > 0 || userKnownKeys.size > 0) &&
+    familiarityLevel === 1
+  ) {
     const filtered = hydrated.filter((t) => !t.inUserLibrary);
     if (filtered.length >= Math.min(4, input.trackCount)) {
       hydrated = filtered;
+    }
+  } else if (
+    knownTracks.length >= input.trackCount &&
+    familiarityLevel === 5
+  ) {
+    const onlyLibrary = hydrated.filter((t) => t.inUserLibrary);
+    if (onlyLibrary.length >= Math.min(4, input.trackCount)) {
+      hydrated = onlyLibrary;
     }
   }
 
@@ -1013,6 +1039,7 @@ export function generateFallbackPlaylist(
     const inLib = knownTracks.length > 0 && isTrackInKnownLibrary(item, knownTracks);
     if (familiarityLevel === 1 && inLib) score -= 120;
     if (familiarityLevel === 4 && inLib) score += 40;
+    if (familiarityLevel === 5) score += inLib ? 80 : -80;
 
     return { item, score };
   })

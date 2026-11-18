@@ -9,6 +9,7 @@ import {
   saveUserLastPlaylist,
 } from "@/lib/profile-store";
 import { enrichTracksWithYouTube } from "@/lib/youtube";
+import { getUserKnownTrackKeys } from "@/lib/youtube-cache";
 import type {
   ExcludedTrackRef,
   GeneratedPlaylist,
@@ -64,7 +65,13 @@ const RequestSchema = z.object({
     .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
     .optional(),
   familiarityLevel: z
-    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+    ])
     .optional()
     .default(3),
   excludeRecentTurns: z.number().int().min(0).max(10).optional().default(0),
@@ -104,24 +111,25 @@ export async function POST(request: NextRequest) {
 
     const accountKey = await resolveUserAccountKey();
     let effectiveTaste = parsed.data.tasteProfile;
-    const needsStoredData =
-      effectiveTaste === undefined || parsed.data.excludeRecentTurns > 0;
-    const stored = needsStoredData ? await readUserData(accountKey) : null;
+    const stored = await readUserData(accountKey);
 
     // Automatically fall back to server-persisted taste profile if client omitted it
-    if (effectiveTaste === undefined && stored?.tasteProfile) {
+    if (effectiveTaste === undefined && stored.tasteProfile) {
       effectiveTaste = {
         dna: stored.tasteProfile.dna,
         knownTracks: stored.tasteProfile.knownTracks,
       };
     }
 
-    const excludedRecentTracks = stored
-      ? collectExcludedRecentTracks(stored, parsed.data.excludeRecentTurns)
-      : [];
+    const excludedRecentTracks = collectExcludedRecentTracks(
+      stored,
+      parsed.data.excludeRecentTurns
+    );
 
     const effectivePopularity =
       parsed.data.popularityLevel ?? (parsed.data.includeHiddenGems ? 3 : 2);
+
+    const [userKnownKeys] = await Promise.all([getUserKnownTrackKeys()]);
 
     const playlist = await generatePlaylistWithGemini(
       {
@@ -129,7 +137,7 @@ export async function POST(request: NextRequest) {
         popularityLevel: effectivePopularity,
         tasteProfile: effectiveTaste ?? null,
       },
-      { excludedRecentTracks }
+      { excludedRecentTracks, userKnownKeys }
     );
 
     const ytSession = await getValidYouTubeSession();
@@ -139,9 +147,14 @@ export async function POST(request: NextRequest) {
         ? { apiKey: process.env.YOUTUBE_API_KEY }
         : {};
 
+    const knownTracksForLookup =
+      effectiveTaste?.knownTracks ?? stored.tasteProfile?.knownTracks ?? [];
+
     const [aniListEnriched, ytEnriched] = await Promise.all([
       enrichTracksWithAniList(playlist.tracks),
-      enrichTracksWithYouTube(playlist.tracks, ytAuth),
+      enrichTracksWithYouTube(playlist.tracks, ytAuth, {
+        knownTracks: knownTracksForLookup,
+      }),
     ]);
 
     const mergedTracks = playlist.tracks.map((track, idx) => ({

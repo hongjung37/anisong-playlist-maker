@@ -48,6 +48,12 @@ const FAMILIARITY_STEPS: Array<{
     ratio: "75%",
     desc: "내 라이브러리 곡을 셋리 흐름대로 다시 짭니다",
   },
+  {
+    level: 5,
+    title: "내 곡만",
+    ratio: "100%",
+    desc: "내 라이브러리에 있는 곡들만으로 셋리를 구성합니다",
+  },
 ];
 
 interface TasteProfilePanelProps {
@@ -121,6 +127,7 @@ export function TasteProfilePanel({
       );
     } finally {
       setLoadingList(false);
+      window.dispatchEvent(new Event("anitune:quota-updated"));
     }
   };
 
@@ -213,6 +220,7 @@ export function TasteProfilePanel({
       );
     } finally {
       setAnalyzing(false);
+      window.dispatchEvent(new Event("anitune:quota-updated"));
     }
   };
 
@@ -490,7 +498,7 @@ export function TasteProfilePanel({
                     {activeFamiliarity?.title} ({activeFamiliarity?.ratio})
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-1">
+                <div className="grid grid-cols-5 gap-1">
                   {FAMILIARITY_STEPS.map((step) => {
                     const active = familiarityLevel === step.level;
                     return (
