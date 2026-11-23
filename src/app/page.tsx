@@ -19,6 +19,7 @@ import type {
   AuthStatus,
   CustomPreset,
   GeneratedPlaylist,
+  GenerationProgressState,
   PlaylistGenerateRequest,
   PlaylistHistoryEntry,
   StoredUserData,
@@ -42,6 +43,8 @@ export default function HomePage() {
   const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
   const [anilistUsername, setAnilistUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [generationProgress, setGenerationProgress] =
+    useState<GenerationProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<{
     type: "ok" | "err";
@@ -207,23 +210,92 @@ export default function HomePage() {
 
   const handleGenerate = async (request: PlaylistGenerateRequest) => {
     setLoading(true);
+    setGenerationProgress({
+      stage: "preparing",
+      message: "생성 요청을 서버로 전송 중입니다",
+      percent: 8,
+    });
     setError(null);
     setBanner(null);
 
     try {
       const res = await fetch("/api/playlist/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
         body: JSON.stringify(request),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "플레이리스트 생성에 실패했습니다.");
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/x-ndjson") || !res.body) {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "플레이리스트 생성에 실패했습니다.");
+        }
+
+        const { playlistHistory: updatedHistory, ...generated } =
+          data as GeneratedPlaylist & {
+            playlistHistory?: PlaylistHistoryEntry[];
+          };
+        setPlaylist(generated);
+        if (Array.isArray(updatedHistory)) {
+          setPlaylistHistory(updatedHistory);
+        }
+        return;
       }
 
-      const { playlistHistory: updatedHistory, ...generated } = data as GeneratedPlaylist & {
+      type GenerateResultPayload = GeneratedPlaylist & {
         playlistHistory?: PlaylistHistoryEntry[];
       };
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalPayload: GenerateResultPayload | null = null;
+
+      const processLine = (line: string): GenerateResultPayload | null => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        const event = JSON.parse(trimmed) as
+          | { type: "progress"; progress: GenerationProgressState }
+          | { type: "result"; data: GenerateResultPayload }
+          | { type: "error"; error: string };
+
+        if (event.type === "progress") {
+          setGenerationProgress(event.progress);
+        } else if (event.type === "error") {
+          throw new Error(event.error || "플레이리스트 생성에 실패했습니다.");
+        } else if (event.type === "result") {
+          return event.data;
+        }
+        return null;
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const maybeResult = processLine(line);
+          if (maybeResult) finalPayload = maybeResult;
+        }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        const maybeResult = processLine(buffer);
+        if (maybeResult) finalPayload = maybeResult;
+      }
+
+      if (!finalPayload) {
+        throw new Error("서버 응답에서 완성된 플레이리스트를 받지 못했습니다.");
+      }
+
+      const { playlistHistory: updatedHistory, ...generated } = finalPayload;
       setPlaylist(generated);
       if (Array.isArray(updatedHistory)) {
         setPlaylistHistory(updatedHistory);
@@ -234,6 +306,7 @@ export default function HomePage() {
       );
     } finally {
       setLoading(false);
+      setGenerationProgress(null);
       window.dispatchEvent(new Event("anitune:quota-updated"));
     }
   };
@@ -425,6 +498,7 @@ export default function HomePage() {
             <PlaylistWorkspace
               playlist={playlist}
               loading={loading}
+              generationProgress={generationProgress}
               authStatus={authStatus}
               onUpdatePlaylist={updatePlaylist}
               onOpenSetup={() => setSetupOpen(true)}

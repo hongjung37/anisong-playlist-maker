@@ -22,10 +22,28 @@ import { PlaylistPlayer } from "@/components/PlaylistPlayer";
 import type {
   AuthStatus,
   GeneratedPlaylist,
+  GenerationProgressState,
+  GenerationStage,
   PlaylistExportResponse,
   PlaylistTrack,
   ThemeType,
 } from "@/types/playlist";
+
+const GENERATION_STEPS: Array<{ stage: GenerationStage; label: string }> = [
+  { stage: "curating", label: "1. AI 셋리 선곡" },
+  { stage: "enriching_anilist", label: "2. AniList 커버 매칭" },
+  { stage: "enriching_youtube", label: "3. YouTube 영상 확인" },
+  { stage: "saving", label: "4. 히스토리 저장" },
+];
+
+const STAGE_ORDER: GenerationStage[] = [
+  "preparing",
+  "curating",
+  "enriching_anilist",
+  "enriching_youtube",
+  "saving",
+  "done",
+];
 
 const THEME_BADGE_STYLES: Record<ThemeType, string> = {
   OP: "bg-obi-soft text-obi-ink border-obi/25",
@@ -40,6 +58,7 @@ const THEME_BADGE_STYLES: Record<ThemeType, string> = {
 interface PlaylistWorkspaceProps {
   playlist: GeneratedPlaylist | null;
   loading: boolean;
+  generationProgress?: GenerationProgressState | null;
   authStatus: AuthStatus | null;
   onUpdatePlaylist: (updated: GeneratedPlaylist) => void;
   onOpenSetup: () => void;
@@ -48,6 +67,7 @@ interface PlaylistWorkspaceProps {
 export function PlaylistWorkspace({
   playlist,
   loading,
+  generationProgress = null,
   authStatus,
   onUpdatePlaylist,
   onOpenSetup,
@@ -70,15 +90,58 @@ export function PlaylistWorkspace({
     useState<PlaylistExportResponse | null>(null);
 
   if (loading) {
+    const activeStage = generationProgress?.stage ?? "preparing";
+    const activeStageIndex = STAGE_ORDER.indexOf(activeStage);
+    const percent = generationProgress?.percent ?? 15;
+
     return (
-      <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-hairline bg-sheet p-10 text-center">
+      <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-hairline bg-sheet p-8 text-center sm:p-10">
         <Loader2 className="mb-4 h-7 w-7 animate-spin text-cobalt" />
         <h3 className="font-display text-xl font-bold text-ink">
-          셋리를 엮는 중입니다
+          {generationProgress?.message ?? "셋리를 엮는 중입니다"}
         </h3>
         <p className="mt-2 max-w-md text-xs leading-relaxed text-muted">
-          원어 곡명과 로마자 표기, 작품 커버 아트를 맞춰 유튜브 뮤직과 스포티파이에서도 바로 찾을 수 있도록 정리하고 있습니다.
+          {generationProgress?.detail ??
+            "원어 곡명과 로마자 표기, 작품 커버 아트를 맞춰 유튜브 뮤직에서도 바로 찾을 수 있도록 정리하고 있습니다."}
         </p>
+
+        <div className="mt-6 w-full max-w-md space-y-4">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-sheet-muted">
+            <div
+              className="h-full rounded-full bg-cobalt transition-all duration-300"
+              style={{ width: `${Math.min(100, Math.max(5, percent))}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-left sm:grid-cols-4">
+            {GENERATION_STEPS.map((step) => {
+              const stepIdx = STAGE_ORDER.indexOf(step.stage);
+              const isDone = activeStageIndex > stepIdx;
+              const isCurrent = activeStageIndex === stepIdx;
+              return (
+                <div
+                  key={step.stage}
+                  className={`flex items-center gap-1.5 rounded border px-2.5 py-2 text-[11px] font-medium transition ${
+                    isDone
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : isCurrent
+                        ? "border-cobalt/40 bg-cobalt-soft text-cobalt-ink"
+                        : "border-hairline bg-sheet-muted text-muted"
+                  }`}
+                >
+                  {isDone ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  ) : isCurrent ? (
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-cobalt" />
+                  ) : (
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-hairline-strong" />
+                  )}
+                  <span className="truncate">{step.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   }
