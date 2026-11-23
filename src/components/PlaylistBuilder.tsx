@@ -3,8 +3,10 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import {
+  Bookmark,
   Search,
   Plus,
+  RotateCcw,
   X,
   Disc3,
   Loader2,
@@ -15,6 +17,7 @@ import {
 import type {
   AnimeSearchItem,
   AuthStatus,
+  CustomPreset,
   EraFilter,
   FamiliarityLevel,
   PlaylistGenerateRequest,
@@ -157,8 +160,10 @@ interface PlaylistBuilderProps {
   authStatus: AuthStatus | null;
   tasteProfile: TasteProfile | null;
   playlistHistory: PlaylistHistoryEntry[];
+  customPresets?: CustomPreset[];
   initialAnilistUsername?: string | null;
   onChangeTasteProfile: (profile: TasteProfile | null) => void;
+  onChangeCustomPresets?: (presets: CustomPreset[]) => void;
   onGenerate: (request: PlaylistGenerateRequest) => void;
 }
 
@@ -181,19 +186,21 @@ export function PlaylistBuilder({
   authStatus,
   tasteProfile,
   playlistHistory,
+  customPresets = [],
   initialAnilistUsername = null,
   onChangeTasteProfile,
+  onChangeCustomPresets,
   onGenerate,
 }: PlaylistBuilderProps) {
   const [familiarityLevel, setFamiliarityLevel] = useState<FamiliarityLevel>(3);
   const [useTasteDna, setUseTasteDna] = useState<boolean>(true);
-  const [seeds, setSeeds] = useState<string[]>(["봇치 더 록!"]);
+  const [seeds, setSeeds] = useState<string[]>([]);
   const [seedInput, setSeedInput] = useState("");
   const [searchResults, setSearchResults] = useState<AnimeSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const [moods, setMoods] = useState<string[]>(["질주감 / 열혈", "울컥 / 감동"]);
-  const [genres, setGenres] = useState<string[]>(["기타록 / 밴드"]);
+  const [moods, setMoods] = useState<string[]>([]);
+  const [genres, setGenres] = useState<string[]>([]);
   const [themeTypes, setThemeTypes] = useState<ThemeType[]>(["OP", "ED", "INSERT"]);
   const [era, setEra] = useState<EraFilter>("ALL");
   const [trackCount, setTrackCount] = useState<number>(12);
@@ -201,6 +208,8 @@ export function PlaylistBuilder({
   const [excludeRecentEnabled, setExcludeRecentEnabled] = useState<boolean>(true);
   const [recentExcludeTurns, setRecentExcludeTurns] = useState<1 | 3 | 5>(1);
   const [prompt, setPrompt] = useState<string>("");
+  const [savingPresetOpen, setSavingPresetOpen] = useState(false);
+  const [presetNameInput, setPresetNameInput] = useState("");
 
   useEffect(() => {
     const q = seedInput.trim();
@@ -272,10 +281,52 @@ export function PlaylistBuilder({
     if (presetData.genres) setGenres(presetData.genres);
     if (presetData.themeTypes) setThemeTypes(presetData.themeTypes);
     if (presetData.era) setEra(presetData.era);
+    if (presetData.trackCount) setTrackCount(presetData.trackCount);
     if (presetData.popularityLevel) {
       setPopularityLevel(presetData.popularityLevel);
     }
     if (presetData.prompt !== undefined) setPrompt(presetData.prompt);
+  };
+
+  const resetConditions = () => {
+    setSeeds([]);
+    setSeedInput("");
+    setSearchResults([]);
+    setMoods([]);
+    setGenres([]);
+    setThemeTypes(["OP", "ED", "INSERT"]);
+    setEra("ALL");
+    setTrackCount(12);
+    setPopularityLevel(3);
+    setPrompt("");
+  };
+
+  const handleSaveCustomPreset = () => {
+    const label = presetNameInput.trim();
+    if (!label || !onChangeCustomPresets) return;
+    const newPreset: CustomPreset = {
+      id: `preset-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label,
+      createdAt: new Date().toISOString(),
+      data: {
+        seeds,
+        moods,
+        genres,
+        themeTypes,
+        era,
+        trackCount,
+        popularityLevel,
+        prompt,
+      },
+    };
+    onChangeCustomPresets([newPreset, ...customPresets].slice(0, 15));
+    setPresetNameInput("");
+    setSavingPresetOpen(false);
+  };
+
+  const handleDeleteCustomPreset = (id: string) => {
+    if (!onChangeCustomPresets) return;
+    onChangeCustomPresets(customPresets.filter((p) => p.id !== id));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -321,7 +372,18 @@ export function PlaylistBuilder({
           <SlidersHorizontal className="h-4 w-4 text-cobalt" />
           선곡 조건
         </div>
-        <span className="text-xs text-muted">최대 6개 시드 조합</span>
+        <div className="flex items-center gap-2.5">
+          <span className="hidden text-xs text-muted sm:inline">최대 6개 시드</span>
+          <button
+            type="button"
+            onClick={resetConditions}
+            className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-0.5 text-[11px] font-medium text-muted transition hover:border-hairline-strong hover:text-ink"
+            title="시드, 무드, 장르 등 선곡 조건 초기화"
+          >
+            <RotateCcw className="h-3 w-3" />
+            조건 초기화
+          </button>
+        </div>
       </div>
 
       <div className="divide-y divide-hairline px-5">
@@ -337,14 +399,51 @@ export function PlaylistBuilder({
           onAddSeed={addSeed}
         />
 
-        {/* Quick Presets */}
+        {/* Quick Presets & Saved Custom Presets */}
         <div className="py-4">
-          <div className="mb-2.5 flex items-baseline justify-between">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-ink">
               빠른 시작 프리셋
             </span>
-            <span className="text-[11px] text-muted">누르면 조건이 채워집니다</span>
+            {onChangeCustomPresets && (
+              <button
+                type="button"
+                onClick={() => setSavingPresetOpen((prev) => !prev)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-cobalt-ink hover:underline"
+              >
+                <Bookmark className="h-3 w-3" />
+                {savingPresetOpen ? "닫기" : "현재 조건 저장"}
+              </button>
+            )}
           </div>
+
+          {savingPresetOpen && onChangeCustomPresets && (
+            <div className="mb-2.5 flex gap-1.5 rounded-md border border-hairline-strong bg-sheet-muted p-2">
+              <input
+                type="text"
+                value={presetNameInput}
+                onChange={(e) => setPresetNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveCustomPreset();
+                  }
+                }}
+                maxLength={40}
+                placeholder="나만의 프리셋 이름 (예: 심야 운동용)"
+                className="min-w-0 flex-1 rounded border border-hairline bg-sheet px-2.5 py-1 text-xs text-ink placeholder:text-muted/70 focus:border-cobalt focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={!presetNameInput.trim()}
+                onClick={handleSaveCustomPreset}
+                className="shrink-0 rounded bg-cobalt px-2.5 py-1 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-45"
+              >
+                저장
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((preset) => (
               <button
@@ -357,6 +456,43 @@ export function PlaylistBuilder({
               </button>
             ))}
           </div>
+
+          {customPresets.length > 0 && (
+            <div className="mt-2.5 border-t border-hairline/70 pt-2.5">
+              <div className="mb-1.5 text-[10px] font-semibold text-muted">
+                내 커스텀 프리셋
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {customPresets.map((preset) => (
+                  <div
+                    key={preset.id}
+                    className="inline-flex items-center overflow-hidden rounded-md border border-cobalt/35 bg-cobalt-soft/60 text-xs"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => applyPreset(preset.data)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 font-medium text-cobalt-ink transition hover:bg-cobalt-soft"
+                      title={`시드 ${preset.data.seeds.length}개 · ${preset.data.trackCount}곡`}
+                    >
+                      <Bookmark className="h-3 w-3 shrink-0" />
+                      <span>{preset.label}</span>
+                    </button>
+                    {onChangeCustomPresets && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCustomPreset(preset.id)}
+                        className="border-l border-cobalt/20 px-1.5 py-1 text-cobalt-ink/70 hover:bg-cobalt/15 hover:text-cobalt-ink"
+                        aria-label={`${preset.label} 삭제`}
+                        title="프리셋 삭제"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Seeds */}

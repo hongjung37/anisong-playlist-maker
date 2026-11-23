@@ -17,6 +17,7 @@ import { SetupModal } from "@/components/SetupModal";
 import { YouTubeQuotaBadge } from "@/components/YouTubeQuotaBadge";
 import type {
   AuthStatus,
+  CustomPreset,
   GeneratedPlaylist,
   PlaylistGenerateRequest,
   PlaylistHistoryEntry,
@@ -38,6 +39,7 @@ export default function HomePage() {
   const [playlistHistory, setPlaylistHistory] = useState<
     PlaylistHistoryEntry[]
   >([]);
+  const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
   const [anilistUsername, setAnilistUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +101,7 @@ export default function HomePage() {
         setTasteProfile(userData.tasteProfile);
         setPlaylist(userData.lastPlaylist);
         setPlaylistHistory(userData.playlistHistory ?? []);
+        setCustomPresets(userData.customPresets ?? []);
         setAnilistUsername(userData.anilistUsername ?? null);
       }
     } catch {
@@ -187,6 +190,19 @@ export default function HomePage() {
         // Ignore background sync errors
       }
     }, 350);
+  };
+
+  const handleUpdateCustomPresets = async (next: CustomPreset[]) => {
+    setCustomPresets(next);
+    try {
+      await fetch("/api/user/state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customPresets: next }),
+      });
+    } catch {
+      // Ignore background sync errors
+    }
   };
 
   const handleGenerate = async (request: PlaylistGenerateRequest) => {
@@ -368,8 +384,10 @@ export default function HomePage() {
               authStatus={authStatus}
               tasteProfile={tasteProfile}
               playlistHistory={playlistHistory}
+              customPresets={customPresets}
               initialAnilistUsername={anilistUsername}
               onChangeTasteProfile={setTasteProfile}
+              onChangeCustomPresets={handleUpdateCustomPresets}
               onGenerate={handleGenerate}
             />
           </div>

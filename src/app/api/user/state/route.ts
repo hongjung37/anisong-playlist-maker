@@ -3,14 +3,22 @@ import { z } from "zod";
 import {
   readUserData,
   resolveUserAccountKey,
+  saveUserAniListUsername,
+  saveUserCustomPresets,
   saveUserLastPlaylist,
   saveUserTasteProfile,
 } from "@/lib/profile-store";
-import type { GeneratedPlaylist, TasteProfile } from "@/types/playlist";
+import type {
+  CustomPreset,
+  GeneratedPlaylist,
+  TasteProfile,
+} from "@/types/playlist";
 
 const PutStateSchema = z.object({
   tasteProfile: z.any().optional(),
   lastPlaylist: z.any().optional(),
+  customPresets: z.any().optional(),
+  anilistUsername: z.string().nullable().optional(),
 });
 
 export async function GET() {
@@ -51,6 +59,22 @@ export async function PUT(request: NextRequest) {
       updated = await saveUserLastPlaylist(
         parsed.data.lastPlaylist as GeneratedPlaylist | null,
         { appendHistory: false, accountKey }
+      );
+    }
+
+    if (parsed.data.customPresets !== undefined) {
+      updated = await saveUserCustomPresets(
+        Array.isArray(parsed.data.customPresets)
+          ? (parsed.data.customPresets as CustomPreset[])
+          : [],
+        accountKey
+      );
+    }
+
+    if (parsed.data.anilistUsername !== undefined) {
+      updated = await saveUserAniListUsername(
+        parsed.data.anilistUsername,
+        accountKey
       );
     }
 
