@@ -10,6 +10,7 @@ import {
   Search,
   Plus,
   RotateCcw,
+  Trophy,
   Tv,
   X,
   Disc3,
@@ -33,6 +34,7 @@ import type {
   WatchedAnimeMode,
 } from "@/types/playlist";
 import { AniListSeedImporter } from "@/components/AniListSeedImporter";
+import { MoodTournamentModal } from "@/components/MoodTournamentModal";
 import { TasteProfilePanel } from "@/components/TasteProfilePanel";
 import { WatchedAnimePanel } from "@/components/WatchedAnimePanel";
 
@@ -227,6 +229,7 @@ export function PlaylistBuilder({
     "watched" | "anilist" | null
   >(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [tournamentOpen, setTournamentOpen] = useState(false);
 
   useEffect(() => {
     const q = seedInput.trim();
@@ -424,16 +427,26 @@ export function PlaylistBuilder({
             <span className="text-xs font-semibold text-ink">
               빠른 시작 프리셋
             </span>
-            {onChangeCustomPresets && (
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => setSavingPresetOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-cobalt-ink hover:underline"
+                onClick={() => setTournamentOpen(true)}
+                className="inline-flex items-center gap-1 rounded border border-obi/35 bg-obi-soft px-2 py-0.5 text-[11px] font-semibold text-obi-ink transition hover:brightness-95"
               >
-                <Bookmark className="h-3 w-3" />
-                {savingPresetOpen ? "닫기" : "현재 조건 저장"}
+                <Trophy className="h-3 w-3" />
+                8강 월드컵
               </button>
-            )}
+              {onChangeCustomPresets && (
+                <button
+                  type="button"
+                  onClick={() => setSavingPresetOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-cobalt-ink hover:underline"
+                >
+                  <Bookmark className="h-3 w-3" />
+                  {savingPresetOpen ? "닫기" : "현재 조건 저장"}
+                </button>
+              )}
+            </div>
           </div>
 
           {savingPresetOpen && onChangeCustomPresets && (
@@ -1055,8 +1068,33 @@ export function PlaylistBuilder({
           ) : (
             <>셋리 만들기</>
           )}
-        </button>
+      </button>
       </div>
+
+      {tournamentOpen && (
+        <MoodTournamentModal
+          watchedAnime={watchedAnime}
+          trackCount={trackCount}
+          familiarityLevel={familiarityLevel}
+          watchedAnimeMode={watchedAnimeMode}
+          tasteProfile={
+            useTasteDna && tasteProfile
+              ? {
+                  dna: tasteProfile.dna,
+                  knownTracks: tasteProfile.knownTracks,
+                }
+              : null
+          }
+          onClose={() => setTournamentOpen(false)}
+          onApplyToBuilder={(res) => {
+            applyPreset(res);
+          }}
+          onGenerateImmediate={(res, req) => {
+            applyPreset(res);
+            onGenerate(req);
+          }}
+        />
+      )}
     </form>
   );
 }

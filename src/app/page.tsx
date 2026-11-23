@@ -552,6 +552,7 @@ export default function HomePage() {
               generationProgress={generationProgress}
               authStatus={authStatus}
               onUpdatePlaylist={updatePlaylist}
+              onGenerateSpinoff={(req) => void handleGenerate(req)}
               onOpenSetup={() => setSetupOpen(true)}
             />
           </div>

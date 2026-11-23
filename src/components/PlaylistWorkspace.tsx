@@ -19,17 +19,24 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   AlertTriangle,
+  X,
   XCircle,
 } from "lucide-react";
 import { PlaylistPlayer } from "@/components/PlaylistPlayer";
+import {
+  buildTrackSpinoffRequest,
+  type TrackSpinoffMode,
+} from "@/lib/spinoff-tournament";
 import type {
   AuthStatus,
   GeneratedPlaylist,
   GenerationProgressState,
   GenerationStage,
   PlaylistExportResponse,
+  PlaylistGenerateRequest,
   PlaylistTrack,
   ThemeType,
 } from "@/types/playlist";
@@ -67,6 +74,7 @@ interface PlaylistWorkspaceProps {
   authStatus: AuthStatus | null;
   onUpdatePlaylist: (updated: GeneratedPlaylist) => void;
   onKnownTracksChanged?: () => void;
+  onGenerateSpinoff?: (request: PlaylistGenerateRequest) => void;
   onOpenSetup: () => void;
 }
 
@@ -77,6 +85,7 @@ export function PlaylistWorkspace({
   authStatus,
   onUpdatePlaylist,
   onKnownTracksChanged,
+  onGenerateSpinoff,
   onOpenSetup,
 }: PlaylistWorkspaceProps) {
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
@@ -103,6 +112,9 @@ export function PlaylistWorkspace({
   const [extending, setExtending] = useState(false);
   const [extendInstruction, setExtendInstruction] = useState("");
   const [trackActionError, setTrackActionError] = useState<string | null>(null);
+  const [openSpinoffTrackId, setOpenSpinoffTrackId] = useState<string | null>(
+    null
+  );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -1112,6 +1124,26 @@ export function PlaylistWorkspace({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1 text-muted sm:opacity-85 sm:group-hover:opacity-100">
+                      {onGenerateSpinoff && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenSpinoffTrackId((prev) =>
+                              prev === track.id ? null : track.id
+                            )
+                          }
+                          className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold transition ${
+                            openSpinoffTrackId === track.id
+                              ? "border-obi bg-obi-soft text-obi-ink"
+                              : "border-hairline bg-sheet text-ink-soft hover:border-obi/40 hover:text-obi-ink"
+                          }`}
+                          title="이 곡의 계보/질감/작품으로 새 셋리 파생 생성"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          파생 셋리
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         disabled={isRerolling || extending}
@@ -1156,6 +1188,65 @@ export function PlaylistWorkspace({
                     </div>
                   </div>
                 </div>
+
+                {openSpinoffTrackId === track.id && onGenerateSpinoff && (
+                  <div className="border-t border-hairline/80 bg-sheet-muted px-4 py-2.5 sm:px-5">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink">
+                        <Sparkles className="h-3.5 w-3.5 text-obi" />
+                        「{track.title}」 결로 새 셋리 파생 생성
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setOpenSpinoffTrackId(null)}
+                        className="rounded p-0.5 text-muted hover:text-ink"
+                        aria-label="파생 셋리 메뉴 닫기"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                      {(
+                        [
+                          {
+                            mode: "lineage" as TrackSpinoffMode,
+                            title: "작곡가 · 밴드 계보",
+                            desc: `${track.artist} 계보와 편곡 문법`,
+                          },
+                          {
+                            mode: "sonic_clone" as TrackSpinoffMode,
+                            title: "BPM · 사운드 질감 클론",
+                            desc: `${track.bpmVibe} 텐션 복제`,
+                          },
+                          {
+                            mode: "anime_deep_dive" as TrackSpinoffMode,
+                            title: "이 작품 전곡 털기",
+                            desc: `${track.animeTitle} OP·ED·OST 스페셜`,
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.mode}
+                          type="button"
+                          onClick={() => {
+                            setOpenSpinoffTrackId(null);
+                            onGenerateSpinoff(
+                              buildTrackSpinoffRequest(track, opt.mode)
+                            );
+                          }}
+                          className="rounded border border-hairline bg-sheet px-2.5 py-2 text-left transition hover:border-obi/50 hover:bg-obi-soft/40"
+                        >
+                          <div className="text-[11px] font-semibold text-ink">
+                            {opt.title}
+                          </div>
+                          <div className="mt-0.5 truncate text-[10px] text-muted">
+                            {opt.desc}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </li>
             );
           })}
