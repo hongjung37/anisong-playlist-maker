@@ -15,7 +15,7 @@ const ProfileRequestSchema = z.object({
       })
     )
     .min(1)
-    .max(200),
+    .max(600),
   sourceSignature: z.string().optional().default(""),
   selectedSources: z
     .array(

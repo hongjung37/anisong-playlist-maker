@@ -136,12 +136,59 @@ export interface PlaylistHistoryEntry {
   playlist: GeneratedPlaylist;
 }
 
+export interface CustomPreset {
+  id: string;
+  label: string;
+  createdAt: string;
+  data: {
+    seeds: string[];
+    moods: string[];
+    genres: string[];
+    themeTypes: ThemeType[];
+    era: EraFilter;
+    trackCount: number;
+    popularityLevel: PopularityLevel;
+    prompt: string;
+  };
+}
+
+export interface AniListUserMediaItem {
+  mediaId: number;
+  status: "CURRENT" | "COMPLETED" | "PAUSED" | "PLANNING" | "REPEATING";
+  score: number;
+  titleRomaji: string;
+  titleNative: string;
+  titleEnglish: string | null;
+  seasonYear: number | null;
+  genres: string[];
+  coverImage: string | null;
+}
+
+export type GenerationStage =
+  | "preparing"
+  | "curating"
+  | "enriching_anilist"
+  | "enriching_youtube"
+  | "saving"
+  | "done"
+  | "error";
+
+export interface GenerationProgressState {
+  stage: GenerationStage;
+  message: string;
+  detail?: string;
+  percent: number;
+}
+
 export interface StoredUserData {
   accountKey: string;
   updatedAt: string;
   tasteProfile: TasteProfile | null;
   lastPlaylist: GeneratedPlaylist | null;
   playlistHistory: PlaylistHistoryEntry[];
+  customPresets?: CustomPreset[];
+  manualKnownTracks?: KnownTrackItem[];
+  anilistUsername?: string | null;
 }
 
 export interface YouTubeQuotaStatus {

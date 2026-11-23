@@ -336,7 +336,7 @@ export function TasteProfilePanel({
           {pickerOpen && playlists.length > 0 && (
             <div className="rounded-md border border-hairline-strong bg-sheet-muted p-3">
               <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-ink">
-                <span>분석에 반영할 플리 선택 (최대 150곡)</span>
+                <span>분석에 반영할 플리 선택 (최대 500곡)</span>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(false)}

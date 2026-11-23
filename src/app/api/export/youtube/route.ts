@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getValidYouTubeSession } from "@/lib/oauth";
+import { resolveUserAccountKey } from "@/lib/profile-store";
 import { createYouTubePlaylist } from "@/lib/youtube";
 import type { PlaylistExportResponse, PlaylistTrack } from "@/types/playlist";
 
@@ -30,12 +31,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const accountKey = await resolveUserAccountKey();
     const result = await createYouTubePlaylist({
       accessToken: session.accessToken,
       title: parsed.data.title,
       description: parsed.data.description,
       privacyStatus: parsed.data.privacyStatus,
       tracks: parsed.data.tracks as PlaylistTrack[],
+      accountKey,
     });
 
     const addedCount = result.results.filter((r) => r.status === "added").length;

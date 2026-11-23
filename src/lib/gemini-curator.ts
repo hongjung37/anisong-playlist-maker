@@ -335,11 +335,30 @@ function describeEra(era: PlaylistGenerateRequest["era"]): string {
   }
 }
 
+function mergeKnownTrackLists(
+  primary: KnownTrackItem[],
+  extra: KnownTrackItem[]
+): KnownTrackItem[] {
+  if (extra.length === 0) return primary;
+  if (primary.length === 0) return extra;
+  const seen = new Set<string>();
+  const merged: KnownTrackItem[] = [];
+  for (const item of [...primary, ...extra]) {
+    const norm = normalizeForCompare(item.rawTitle);
+    const key = item.videoId ? `id:${item.videoId}` : `t:${norm}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+}
+
 export async function generatePlaylistWithGemini(
   input: PlaylistGenerateRequest,
   options?: {
     excludedRecentTracks?: ExcludedTrackRef[];
     userKnownKeys?: Set<string>;
+    extraKnownTracks?: KnownTrackItem[];
   }
 ): Promise<GeneratedPlaylist> {
   const excludedRecentTracks = options?.excludedRecentTracks ?? [];
@@ -365,7 +384,10 @@ export async function generatePlaylistWithGemini(
 8. [최근 생성 플레이리스트 중복 제외 목록]이 주어지면 해당 곡들은 직전/최근 생성 셋리에 이미 들어간 곡이므로 이번 셋리에서 반드시 제외하세요.
 9. 사용자 라이브러리(knownTracks)에 일반 J-POP·보컬로이드·유튜브 커버 등 애니메이션 타이업이 아닌 곡이 섞여 있더라도, 선곡 결과에는 반드시 실제 애니메이션 공식 타이업(OP/ED/OST/삽입곡/캐릭터송)인 곡만 포함하세요. 비애니송을 끼워 넣거나 타이업을 지어내지 마세요.`;
 
-  const knownTracks = input.tasteProfile?.knownTracks ?? [];
+  const knownTracks = mergeKnownTrackLists(
+    input.tasteProfile?.knownTracks ?? [],
+    options?.extraKnownTracks ?? []
+  );
   const tasteDna = input.tasteProfile?.dna ?? null;
   const familiarityLevel = input.familiarityLevel ?? 3;
   const popularityLevel = resolvePopularityLevel(input);
@@ -976,14 +998,22 @@ function matchEra(year: number | null, era: PlaylistGenerateRequest["era"]): boo
 
 export function generateFallbackPlaylist(
   input: PlaylistGenerateRequest,
-  options?: { excludedRecentTracks?: ExcludedTrackRef[] }
+  options?: {
+    excludedRecentTracks?: ExcludedTrackRef[];
+    userKnownKeys?: Set<string>;
+    extraKnownTracks?: KnownTrackItem[];
+  }
 ): GeneratedPlaylist {
   const excludedRecentTracks = options?.excludedRecentTracks ?? [];
+  const userKnownKeys = options?.userKnownKeys ?? new Set<string>();
   const seedLower = input.seeds.map((s) => s.toLowerCase());
   const promptLower = (input.prompt ?? "").toLowerCase();
   const genres = input.genres ?? [];
 
-  const knownTracks = input.tasteProfile?.knownTracks ?? [];
+  const knownTracks = mergeKnownTrackLists(
+    input.tasteProfile?.knownTracks ?? [],
+    options?.extraKnownTracks ?? []
+  );
   const familiarityLevel = input.familiarityLevel ?? 3;
   const popularityLevel = resolvePopularityLevel(input);
 
@@ -1062,6 +1092,6 @@ export function generateFallbackPlaylist(
     curatorSummary:
       "현재 GEMINI_API_KEY가 설정되지 않아 샘플 카탈로그 모드로 생성되었습니다. .env.local에 GEMINI_API_KEY를 추가하면 취향 DNA와 4단계 비중을 반영한 실시간 AI 선곡이 동작합니다.",
     mode: "demo-fallback",
-    tracks: hydrateTracks(scored, knownTracks),
+    tracks: hydrateTracks(scored, knownTracks, userKnownKeys),
   };
 }

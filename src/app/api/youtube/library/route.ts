@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const result = await fetchYouTubePlaylistTracks({
       accessToken: session.accessToken,
       sources: parsed.data.sources,
-      maxTotalTracks: 150,
+      maxTotalTracks: 500,
     });
 
     return NextResponse.json(result);

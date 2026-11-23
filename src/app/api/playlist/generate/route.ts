@@ -129,7 +129,10 @@ export async function POST(request: NextRequest) {
     const effectivePopularity =
       parsed.data.popularityLevel ?? (parsed.data.includeHiddenGems ? 3 : 2);
 
-    const [userKnownKeys] = await Promise.all([getUserKnownTrackKeys()]);
+    const [userKnownKeys] = await Promise.all([
+      getUserKnownTrackKeys(accountKey),
+    ]);
+    const manualKnownTracks = stored.manualKnownTracks ?? [];
 
     const playlist = await generatePlaylistWithGemini(
       {
@@ -137,7 +140,11 @@ export async function POST(request: NextRequest) {
         popularityLevel: effectivePopularity,
         tasteProfile: effectiveTaste ?? null,
       },
-      { excludedRecentTracks, userKnownKeys }
+      {
+        excludedRecentTracks,
+        userKnownKeys,
+        extraKnownTracks: manualKnownTracks,
+      }
     );
 
     const ytSession = await getValidYouTubeSession();
@@ -147,8 +154,10 @@ export async function POST(request: NextRequest) {
         ? { apiKey: process.env.YOUTUBE_API_KEY }
         : {};
 
-    const knownTracksForLookup =
-      effectiveTaste?.knownTracks ?? stored.tasteProfile?.knownTracks ?? [];
+    const knownTracksForLookup = [
+      ...(effectiveTaste?.knownTracks ?? stored.tasteProfile?.knownTracks ?? []),
+      ...manualKnownTracks,
+    ];
 
     const [aniListEnriched, ytEnriched] = await Promise.all([
       enrichTracksWithAniList(playlist.tracks),

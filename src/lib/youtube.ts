@@ -38,11 +38,34 @@ interface VideoEmbedStatus {
   durationSec: number;
 }
 
-function parseIsoDurationSec(iso?: string): number {
+export function parseIsoDurationSec(iso?: string): number {
   if (!iso) return 0;
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!m) return 0;
   return Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0);
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) break;
+      results[current] = await mapper(items[current], current);
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+  return results;
 }
 
 function buildSearchUrls(track: PlaylistTrack) {
@@ -55,7 +78,7 @@ function buildSearchUrls(track: PlaylistTrack) {
   };
 }
 
-function decodeHtmlEntities(str: string): string {
+export function decodeHtmlEntities(str: string): string {
   return str
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
@@ -68,7 +91,7 @@ function decodeHtmlEntities(str: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function isLowQualityMatch(title: string): boolean {
+export function isLowQualityMatch(title: string): boolean {
   const lower = title.toLowerCase();
   if (
     lower.includes("nightcore") ||
@@ -131,7 +154,7 @@ function isLowQualityMatch(title: string): boolean {
   );
 }
 
-function isLivePerformance(videoTitle: string, trackTitle: string): boolean {
+export function isLivePerformance(videoTitle: string, trackTitle: string): boolean {
   if (/\blive\b|라이브|ライブ/i.test(trackTitle)) {
     return false;
   }
@@ -140,7 +163,7 @@ function isLivePerformance(videoTitle: string, trackTitle: string): boolean {
   );
 }
 
-function isCoverMatch(
+export function isCoverMatch(
   videoTitle: string,
   channelTitle: string,
   trackTitle: string,
@@ -168,18 +191,18 @@ function isCoverMatch(
   return false;
 }
 
-function isTopicChannel(channelTitle: string): boolean {
+export function isTopicChannel(channelTitle: string): boolean {
   const trimmed = channelTitle.trim();
   return trimmed.endsWith("- Topic") || trimmed.endsWith("- 주제");
 }
 
-function normalizeMatchText(str: string): string {
+export function normalizeMatchText(str: string): string {
   return str
     .toLowerCase()
     .replace(/[\s\-_'"`~!@#$%^&*+=[\]{}();:,.<>?/\\|！？・〜～『』「」【】]/g, "");
 }
 
-function cleanSearchText(str: string): string {
+export function cleanSearchText(str: string): string {
   return str
     .replace(/[（(][^）)]*cv[:：]?[^）)]*[）)]/gi, " ")
     .replace(/[☆★×～〜・、,（）()]/g, " ")
@@ -735,14 +758,98 @@ export async function createYouTubePlaylist(params: {
   description: string;
   privacyStatus: "private" | "unlisted" | "public";
   tracks: PlaylistTrack[];
+  accountKey?: string;
 }): Promise<{
   playlistId: string;
   youtubeUrl: string;
   youtubeMusicUrl: string;
   results: ExportTrackResult[];
 }> {
-  const { accessToken, title, description, privacyStatus, tracks } = params;
+  const {
+    accessToken,
+    title,
+    description,
+    privacyStatus,
+    tracks,
+    accountKey,
+  } = params;
 
+  // Phase 1: Resolve all tracks (with bounded concurrency) before creating/populating playlist items
+  const resolvedTracks = await mapWithConcurrency(
+    tracks,
+    4,
+    async (track) => {
+      if (track.youtubeVideoId) {
+        return {
+          track,
+          videoId: track.youtubeVideoId,
+          matchedTitle: track.title,
+          cacheHit: false,
+          freshMatch: null as {
+            videoId: string;
+            candidateVideoIds: string[];
+            title: string;
+          } | null,
+        };
+      }
+
+      const cached = await lookupCachedYouTubeMatch(track);
+      if (cached) {
+        return {
+          track,
+          videoId: cached.videoId,
+          matchedTitle: cached.title,
+          cacheHit: true,
+          freshMatch: null,
+        };
+      }
+
+      const match = await searchYouTubeTrack(track, { accessToken });
+      if (match) {
+        return {
+          track,
+          videoId: match.videoId,
+          matchedTitle: match.title,
+          cacheHit: false,
+          freshMatch: match,
+        };
+      }
+
+      return {
+        track,
+        videoId: null as string | null,
+        matchedTitle: track.title,
+        cacheHit: false,
+        freshMatch: null,
+      };
+    }
+  );
+
+  const cacheHitCount = resolvedTracks.filter((item) => item.cacheHit).length;
+  if (cacheHitCount > 0) {
+    await recordYouTubeCacheHit(cacheHitCount);
+  }
+
+  const newlyMatched = resolvedTracks
+    .filter(
+      (
+        item
+      ): item is typeof item & {
+        freshMatch: NonNullable<typeof item.freshMatch>;
+      } => Boolean(item.freshMatch)
+    )
+    .map((item) => ({
+      track: item.track,
+      match: item.freshMatch,
+    }));
+
+  if (newlyMatched.length > 0) {
+    await saveCachedYouTubeBatch(newlyMatched, { accountKey }).catch((err) => {
+      console.warn("[youtube-cache] Failed to save export matches:", err);
+    });
+  }
+
+  // Phase 2: Create playlist and insert items sequentially to preserve setlist order
   await recordYouTubeQuotaUsage({ units: 50, category: "write" });
   const createRes = await fetch(
     "https://www.googleapis.com/youtube/v3/playlists?part=snippet,status",
@@ -773,24 +880,8 @@ export async function createYouTubePlaylist(params: {
   const playlistId = created.id;
   const results: ExportTrackResult[] = [];
 
-  for (const track of tracks) {
-    let videoId = track.youtubeVideoId;
-    let matchedTitle = track.title;
-
-    if (!videoId) {
-      const cached = await lookupCachedYouTubeMatch(track);
-      if (cached) {
-        await recordYouTubeCacheHit(1);
-        videoId = cached.videoId;
-        matchedTitle = cached.title;
-      } else {
-        const match = await searchYouTubeTrack(track, { accessToken });
-        if (match) {
-          videoId = match.videoId;
-          matchedTitle = match.title;
-        }
-      }
-    }
+  for (const resolved of resolvedTracks) {
+    const { track, videoId, matchedTitle } = resolved;
 
     if (!videoId) {
       results.push({
@@ -890,45 +981,60 @@ export async function listUserYouTubePlaylists(
     // Non-fatal
   }
 
-  // 2. Fetch user's playlists
-  await recordYouTubeQuotaUsage({ units: 1, category: "read" });
-  const plRes = await fetch(
-    "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=25",
-    {
+  // 2. Fetch user's playlists (paginated up to 2 pages / 100 playlists)
+  let pageToken: string | undefined;
+  for (let page = 0; page < 2; page += 1) {
+    const url = new URL("https://www.googleapis.com/youtube/v3/playlists");
+    url.searchParams.set("part", "snippet,contentDetails");
+    url.searchParams.set("mine", "true");
+    url.searchParams.set("maxResults", "50");
+    if (pageToken) {
+      url.searchParams.set("pageToken", pageToken);
+    }
+
+    await recordYouTubeQuotaUsage({ units: 1, category: "read" });
+    const plRes = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
-    }
-  );
-
-  if (!plRes.ok) {
-    const errText = await plRes.text();
-    throw new Error(
-      `YouTube 플레이리스트 목록 조회 실패 (${plRes.status}): ${errText}`
-    );
-  }
-
-  const plData = (await plRes.json()) as {
-    items?: Array<{
-      id: string;
-      snippet?: {
-        title?: string;
-        thumbnails?: { medium?: { url?: string }; default?: { url?: string } };
-      };
-      contentDetails?: { itemCount?: number };
-    }>;
-  };
-
-  for (const item of plData.items ?? []) {
-    summaries.push({
-      id: item.id,
-      title: item.snippet?.title ?? "제목 없는 플레이리스트",
-      itemCount: item.contentDetails?.itemCount ?? 0,
-      thumbnail:
-        item.snippet?.thumbnails?.medium?.url ??
-        item.snippet?.thumbnails?.default?.url ??
-        null,
-      kind: "playlist",
     });
+
+    if (!plRes.ok) {
+      if (page === 0) {
+        const errText = await plRes.text();
+        throw new Error(
+          `YouTube 플레이리스트 목록 조회 실패 (${plRes.status}): ${errText}`
+        );
+      }
+      break;
+    }
+
+    const plData = (await plRes.json()) as {
+      nextPageToken?: string;
+      items?: Array<{
+        id: string;
+        snippet?: {
+          title?: string;
+          thumbnails?: { medium?: { url?: string }; default?: { url?: string } };
+        };
+        contentDetails?: { itemCount?: number };
+      }>;
+    };
+
+    for (const item of plData.items ?? []) {
+      summaries.push({
+        id: item.id,
+        title: item.snippet?.title ?? "제목 없는 플레이리스트",
+        itemCount: item.contentDetails?.itemCount ?? 0,
+        thumbnail:
+          item.snippet?.thumbnails?.medium?.url ??
+          item.snippet?.thumbnails?.default?.url ??
+          null,
+        kind: "playlist",
+      });
+    }
+
+    pageToken = plData.nextPageToken;
+    if (!pageToken) break;
   }
 
   return summaries;
@@ -939,63 +1045,75 @@ export async function fetchYouTubePlaylistTracks(params: {
   sources: Array<{ id: string; title: string }>;
   maxTotalTracks?: number;
 }): Promise<{ tracks: KnownTrackItem[]; sourceSignature: string }> {
-  const { accessToken, sources, maxTotalTracks = 150 } = params;
+  const { accessToken, sources, maxTotalTracks = 500 } = params;
   const seenVideoIds = new Set<string>();
   const tracks: KnownTrackItem[] = [];
 
   for (const src of sources) {
     if (tracks.length >= maxTotalTracks) break;
 
-    const url = new URL(
-      "https://www.googleapis.com/youtube/v3/playlistItems"
-    );
-    url.searchParams.set("part", "snippet,contentDetails");
-    url.searchParams.set("playlistId", src.id);
-    url.searchParams.set("maxResults", "50");
+    let pageToken: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      if (tracks.length >= maxTotalTracks) break;
 
-    await recordYouTubeQuotaUsage({ units: 1, category: "read" });
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
-
-    if (!res.ok) continue;
-
-    const data = (await res.json()) as {
-      items?: Array<{
-        snippet?: {
-          title?: string;
-          videoOwnerChannelTitle?: string;
-          channelTitle?: string;
-        };
-        contentDetails?: { videoId?: string };
-      }>;
-    };
-
-    for (const item of data.items ?? []) {
-      const title = item.snippet?.title?.trim() ?? "";
-      const videoId = item.contentDetails?.videoId;
-      if (
-        !title ||
-        title === "Deleted video" ||
-        title === "Private video" ||
-        (videoId && seenVideoIds.has(videoId))
-      ) {
-        continue;
+      const url = new URL(
+        "https://www.googleapis.com/youtube/v3/playlistItems"
+      );
+      url.searchParams.set("part", "snippet,contentDetails");
+      url.searchParams.set("playlistId", src.id);
+      url.searchParams.set("maxResults", "50");
+      if (pageToken) {
+        url.searchParams.set("pageToken", pageToken);
       }
 
-      if (videoId) seenVideoIds.add(videoId);
-      const channelTitle =
-        item.snippet?.videoOwnerChannelTitle ?? item.snippet?.channelTitle;
-
-      tracks.push({
-        rawTitle: title,
-        channelTitle: channelTitle?.replace(/\s*-\s*Topic$/i, "").trim(),
-        videoId,
-        sourceName: src.title,
+      await recordYouTubeQuotaUsage({ units: 1, category: "read" });
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
       });
 
-      if (tracks.length >= maxTotalTracks) break;
+      if (!res.ok) break;
+
+      const data = (await res.json()) as {
+        nextPageToken?: string;
+        items?: Array<{
+          snippet?: {
+            title?: string;
+            videoOwnerChannelTitle?: string;
+            channelTitle?: string;
+          };
+          contentDetails?: { videoId?: string };
+        }>;
+      };
+
+      for (const item of data.items ?? []) {
+        const title = item.snippet?.title?.trim() ?? "";
+        const videoId = item.contentDetails?.videoId;
+        if (
+          !title ||
+          title === "Deleted video" ||
+          title === "Private video" ||
+          (videoId && seenVideoIds.has(videoId))
+        ) {
+          continue;
+        }
+
+        if (videoId) seenVideoIds.add(videoId);
+        const channelTitle =
+          item.snippet?.videoOwnerChannelTitle ?? item.snippet?.channelTitle;
+
+        tracks.push({
+          rawTitle: title,
+          channelTitle: channelTitle?.replace(/\s*-\s*Topic$/i, "").trim(),
+          videoId,
+          sourceName: src.title,
+        });
+
+        if (tracks.length >= maxTotalTracks) break;
+      }
+
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
     }
   }
 
