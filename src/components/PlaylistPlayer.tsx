@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
+  ArrowUp,
   ExternalLink,
   Loader2,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
   Repeat,
@@ -137,6 +140,8 @@ export function PlaylistPlayer({
           : null
       : null;
 
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const playerSectionRef = useRef<HTMLElement | null>(null);
   const hostWrapperRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const playerReadyRef = useRef(false);
@@ -152,6 +157,9 @@ export function PlaylistPlayer({
 
   const [resolving, setResolving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  const [isScrolledPast, setIsScrolledPast] = useState(false);
+  const [placeholderHeight, setPlaceholderHeight] = useState(0);
 
   const tracksRef = useRef(tracks);
   const currentTrackRef = useRef(currentTrack);
@@ -510,6 +518,29 @@ export function PlaylistPlayer({
     };
   }, [currentVideoId]);
 
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const scrolledPast =
+          !entry.isIntersecting && entry.boundingClientRect.top < 0;
+        if (scrolledPast) {
+          const measured = playerSectionRef.current?.offsetHeight ?? 0;
+          if (measured > 0) {
+            setPlaceholderHeight(measured);
+          }
+        }
+        setIsScrolledPast(scrolledPast);
+      },
+      { threshold: 0 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Destroy player cleanly only when PlaylistPlayer unmounts
   useEffect(() => {
     const wrapper = hostWrapperRef.current;
@@ -552,189 +583,349 @@ export function PlaylistPlayer({
           : null
       : null);
 
+  const isDocked = isScrolledPast;
+  const compactMode = isDocked || minimized;
+
+  const scrollToPlayerAnchor = () => {
+    sentinelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   return (
-    <section
-      aria-label="웹 순차 재생 플레이어"
-      className="overflow-hidden rounded-lg border border-hairline-strong bg-[#0B0D13] text-white"
+    <div
+      ref={sentinelRef}
+      style={
+        isDocked && placeholderHeight > 0
+          ? { minHeight: `${placeholderHeight}px` }
+          : undefined
+      }
     >
-      {/* Top Bar */}
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
-          <Tv className="h-4 w-4 shrink-0 text-obi" />
-          <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-200">
-            {String(activeIndex + 1).padStart(2, "0")} /{" "}
-            {String(tracks.length).padStart(2, "0")}
-          </span>
-          <span className="truncate font-semibold text-white">
-            {currentTrack.title}
-          </span>
-          <span className="hidden truncate text-slate-400 sm:inline">
-            — {currentTrack.artist}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          onClick={onClosePlayer}
-          className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
-        >
-          <X className="h-3.5 w-3.5" />
-          닫기
-        </button>
-      </div>
-
-      {/* Player Deck */}
-      <div className="flex flex-col sm:flex-row">
-        {/* Video Viewport */}
-        <div className="relative aspect-video w-full shrink-0 bg-black sm:w-[360px]">
-          <div ref={hostWrapperRef} className="h-full w-full" />
-          {!currentVideoId && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/90 p-4 text-center">
-              {resolving ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin text-cobalt" />
-                  <span className="text-xs text-slate-300">
-                    재생 영상을 찾는 중...
-                  </span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="h-5 w-5 text-amber-400" />
-                  <span className="text-xs text-slate-300">
-                    {canResolveYouTube
-                      ? "임베드 가능한 영상을 준비 중입니다"
-                      : "YouTube 연결이 필요합니다"}
-                  </span>
-                  {!canResolveYouTube && (
-                    <button
-                      type="button"
-                      onClick={onOpenSetup}
-                      className="mt-1 rounded bg-cobalt px-2.5 py-1 text-[11px] font-semibold text-white hover:brightness-110"
-                    >
-                      연결 설정 열기
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Transport & Queue Info */}
-        <div className="flex min-w-0 flex-1 flex-col justify-between gap-3 p-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-              <span className="font-semibold text-cobalt">
-                {currentTrack.animeTitle}
+      <section
+        ref={playerSectionRef}
+        aria-label="웹 순차 재생 플레이어"
+        className={
+          isDocked
+            ? "fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-5xl overflow-hidden rounded-lg border border-white/20 bg-[#0B0D13]/95 text-white shadow-2xl backdrop-blur-md"
+            : "overflow-hidden rounded-lg border border-hairline-strong bg-[#0B0D13] text-white"
+        }
+      >
+        {/* Top Bar (shown in full mode) */}
+        {!compactMode && (
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
+            <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
+              <Tv className="h-4 w-4 shrink-0 text-obi" />
+              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-200">
+                {String(activeIndex + 1).padStart(2, "0")} /{" "}
+                {String(tracks.length).padStart(2, "0")}
               </span>
-              <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] text-slate-300">
-                {currentTrack.themeLabel}
+              <span className="truncate font-semibold text-white">
+                {currentTrack.title}
               </span>
-              {currentTrack.setlistSection && (
-                <span className="text-slate-400">
-                  · {currentTrack.setlistSection}
-                </span>
-              )}
+              <span className="hidden truncate text-slate-400 sm:inline">
+                — {currentTrack.artist}
+              </span>
             </div>
-            <h3 className="mt-1 truncate text-base font-bold text-white">
-              {currentTrack.title}
-            </h3>
-            <p className="truncate text-xs text-slate-300">
-              {currentTrack.artist}
-            </p>
-            <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">
-              {currentTrack.reason}
-            </p>
-          </div>
 
-          {displayedNotice && (
-            <div className="flex items-center justify-between gap-2 rounded border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] text-amber-200">
-              <span className="truncate">{displayedNotice}</span>
-              <a
-                href={currentTrack.youtubeMusicUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 font-semibold underline hover:text-white"
-              >
-                YT Music <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-            {/* Transport Buttons */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
-                onClick={() => stepToAdjacent(-1, "user")}
-                disabled={activeIndex <= 0}
-                aria-label="이전 곡"
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
+                onClick={() => setMinimized(true)}
+                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
+                title="영상 접기 (미니 모드)"
               >
-                <SkipBack className="h-3.5 w-3.5" />
+                <Minimize2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">미니 모드</span>
               </button>
-
               <button
                 type="button"
-                onClick={handleTogglePlayPause}
-                disabled={!currentVideoId}
-                className="inline-flex h-8 items-center gap-1.5 rounded bg-obi px-3.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+                onClick={onClosePlayer}
+                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
               >
-                {isPlaying ? (
+                <X className="h-3.5 w-3.5" />
+                닫기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Player Deck */}
+        <div
+          className={
+            compactMode
+              ? "flex flex-wrap items-center gap-3 px-3 py-2.5 sm:flex-nowrap sm:px-4"
+              : "flex flex-col sm:flex-row"
+          }
+        >
+          {/* Video Viewport (never unmounts hostWrapperRef) */}
+          <div
+            className={
+              compactMode
+                ? "relative h-12 w-20 shrink-0 overflow-hidden rounded bg-black sm:h-14 sm:w-24"
+                : "relative aspect-video w-full shrink-0 bg-black sm:w-[360px]"
+            }
+          >
+            <div ref={hostWrapperRef} className="h-full w-full" />
+            {!currentVideoId && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/90 p-2 text-center">
+                {resolving ? (
                   <>
-                    <Pause className="h-3.5 w-3.5 fill-current" />
-                    일시정지
+                    <Loader2 className="h-4 w-4 animate-spin text-cobalt" />
+                    {!compactMode && (
+                      <span className="text-xs text-slate-300">
+                        재생 영상을 찾는 중...
+                      </span>
+                    )}
                   </>
                 ) : (
                   <>
-                    <Play className="h-3.5 w-3.5 fill-current" />
-                    재생
+                    <AlertCircle className="h-4 w-4 text-amber-400" />
+                    {!compactMode && (
+                      <>
+                        <span className="text-xs text-slate-300">
+                          {canResolveYouTube
+                            ? "임베드 가능한 영상을 준비 중입니다"
+                            : "YouTube 연결이 필요합니다"}
+                        </span>
+                        {!canResolveYouTube && (
+                          <button
+                            type="button"
+                            onClick={onOpenSetup}
+                            className="mt-1 rounded bg-cobalt px-2.5 py-1 text-[11px] font-semibold text-white hover:brightness-110"
+                          >
+                            연결 설정 열기
+                          </button>
+                        )}
+                      </>
+                    )}
                   </>
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => stepToAdjacent(1, "user")}
-                disabled={activeIndex >= tracks.length - 1 && !repeatAll}
-                aria-label="다음 곡"
-                className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
-              >
-                <SkipForward className="h-3.5 w-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={onToggleRepeatAll}
-                aria-pressed={repeatAll}
-                title="전곡 반복"
-                className={`inline-flex h-8 items-center gap-1 rounded border px-2.5 text-[11px] font-medium transition ${
-                  repeatAll
-                    ? "border-cobalt bg-cobalt/20 text-cobalt"
-                    : "border-white/15 bg-white/5 text-slate-300 hover:bg-white/10"
-                }`}
-              >
-                <Repeat className="h-3.5 w-3.5" />
-                반복
-              </button>
-            </div>
-
-            {/* Up Next */}
-            <div className="min-w-0 text-right text-[11px] text-slate-400">
-              {nextTrack ? (
-                <span className="block truncate">
-                  다음 곡:{" "}
-                  <strong className="font-medium text-slate-200">
-                    {nextTrack.title}
-                  </strong>
-                </span>
-              ) : (
-                <span>셋리 마지막 곡</span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
+
+          {compactMode ? (
+            <>
+              {/* Compact Track Metadata */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <span className="rounded bg-white/10 px-1.5 py-0.5 font-bold tabular-nums text-slate-200">
+                    {String(activeIndex + 1).padStart(2, "0")}/
+                    {String(tracks.length).padStart(2, "0")}
+                  </span>
+                  <span className="truncate font-semibold text-cobalt">
+                    {currentTrack.animeTitle}
+                  </span>
+                  <span className="shrink-0">· {currentTrack.themeLabel}</span>
+                </div>
+                <div className="mt-0.5 truncate text-xs font-bold text-white sm:text-sm">
+                  {currentTrack.title}
+                </div>
+                <div className="truncate text-[11px] text-slate-300">
+                  {currentTrack.artist}
+                  {nextTrack ? ` · 다음: ${nextTrack.title}` : ""}
+                </div>
+              </div>
+
+              {/* Compact Transport Controls */}
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => stepToAdjacent(-1, "user")}
+                  disabled={activeIndex <= 0}
+                  aria-label="이전 곡"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
+                >
+                  <SkipBack className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTogglePlayPause}
+                  disabled={!currentVideoId}
+                  aria-label={isPlaying ? "일시정지" : "재생"}
+                  className="inline-flex h-8 items-center gap-1 rounded bg-obi px-3 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+                >
+                  {isPlaying ? (
+                    <Pause className="h-3.5 w-3.5 fill-current" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => stepToAdjacent(1, "user")}
+                  disabled={activeIndex >= tracks.length - 1 && !repeatAll}
+                  aria-label="다음 곡"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
+                >
+                  <SkipForward className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onToggleRepeatAll}
+                  aria-pressed={repeatAll}
+                  title="전곡 반복"
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded border transition ${
+                    repeatAll
+                      ? "border-cobalt bg-cobalt/20 text-cobalt"
+                      : "border-white/15 bg-white/5 text-slate-300 hover:bg-white/10"
+                  }`}
+                >
+                  <Repeat className="h-3.5 w-3.5" />
+                </button>
+
+                {isDocked ? (
+                  <button
+                    type="button"
+                    onClick={scrollToPlayerAnchor}
+                    className="inline-flex h-8 items-center gap-1 rounded border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 transition hover:bg-white/15"
+                    title="상단 플레이어로 이동"
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">위로</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setMinimized(false)}
+                    className="inline-flex h-8 items-center gap-1 rounded border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 transition hover:bg-white/15"
+                    title="영상 펼치기"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    <span className="hidden md:inline">펼치기</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={onClosePlayer}
+                  aria-label="플레이어 닫기"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-300 transition hover:bg-white/15 hover:text-white"
+                  title="플레이어 닫기"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Full Transport & Queue Info */
+            <div className="flex min-w-0 flex-1 flex-col justify-between gap-3 p-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="font-semibold text-cobalt">
+                    {currentTrack.animeTitle}
+                  </span>
+                  <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] text-slate-300">
+                    {currentTrack.themeLabel}
+                  </span>
+                  {currentTrack.setlistSection && (
+                    <span className="text-slate-400">
+                      · {currentTrack.setlistSection}
+                    </span>
+                  )}
+                </div>
+                <h3 className="mt-1 truncate text-base font-bold text-white">
+                  {currentTrack.title}
+                </h3>
+                <p className="truncate text-xs text-slate-300">
+                  {currentTrack.artist}
+                </p>
+                <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">
+                  {currentTrack.reason}
+                </p>
+              </div>
+
+              {displayedNotice && (
+                <div className="flex items-center justify-between gap-2 rounded border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] text-amber-200">
+                  <span className="truncate">{displayedNotice}</span>
+                  <a
+                    href={currentTrack.youtubeMusicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1 font-semibold underline hover:text-white"
+                  >
+                    YT Music <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+                {/* Transport Buttons */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => stepToAdjacent(-1, "user")}
+                    disabled={activeIndex <= 0}
+                    aria-label="이전 곡"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
+                  >
+                    <SkipBack className="h-3.5 w-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTogglePlayPause}
+                    disabled={!currentVideoId}
+                    className="inline-flex h-8 items-center gap-1.5 rounded bg-obi px-3.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
+                  >
+                    {isPlaying ? (
+                      <>
+                        <Pause className="h-3.5 w-3.5 fill-current" />
+                        일시정지
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        재생
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => stepToAdjacent(1, "user")}
+                    disabled={activeIndex >= tracks.length - 1 && !repeatAll}
+                    aria-label="다음 곡"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
+                  >
+                    <SkipForward className="h-3.5 w-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onToggleRepeatAll}
+                    aria-pressed={repeatAll}
+                    title="전곡 반복"
+                    className={`inline-flex h-8 items-center gap-1 rounded border px-2.5 text-[11px] font-medium transition ${
+                      repeatAll
+                        ? "border-cobalt bg-cobalt/20 text-cobalt"
+                        : "border-white/15 bg-white/5 text-slate-300 hover:bg-white/10"
+                    }`}
+                  >
+                    <Repeat className="h-3.5 w-3.5" />
+                    반복
+                  </button>
+                </div>
+
+                {/* Up Next */}
+                <div className="min-w-0 text-right text-[11px] text-slate-400">
+                  {nextTrack ? (
+                    <span className="block truncate">
+                      다음 곡:{" "}
+                      <strong className="font-medium text-slate-200">
+                        {nextTrack.title}
+                      </strong>
+                    </span>
+                  ) : (
+                    <span>셋리 마지막 곡</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

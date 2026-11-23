@@ -19,6 +19,9 @@ interface AniListSeedImporterProps {
   initialUsername: string | null;
   seeds: string[];
   maxSeeds?: number;
+  open?: boolean;
+  onToggleOpen?: () => void;
+  hideToggleButton?: boolean;
   onAddSeed: (seed: string) => void;
   onRemoveSeed: (seed: string) => void;
 }
@@ -37,10 +40,22 @@ export function AniListSeedImporter({
   initialUsername,
   seeds,
   maxSeeds = 6,
+  open: controlledOpen,
+  onToggleOpen,
+  hideToggleButton = false,
   onAddSeed,
   onRemoveSeed,
 }: AniListSeedImporterProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen =
+    typeof controlledOpen === "boolean" ? controlledOpen : internalOpen;
+  const handleToggle = () => {
+    if (onToggleOpen) {
+      onToggleOpen();
+    } else {
+      setInternalOpen((prev) => !prev);
+    }
+  };
   const [draftUsername, setDraftUsername] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [titleQuery, setTitleQuery] = useState("");
@@ -121,29 +136,37 @@ export function AniListSeedImporter({
 
   const activeBadge = loadedUsername || initialUsername;
 
-  return (
-    <div className="mt-2.5">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1.5 rounded border border-hairline bg-sheet-muted px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
-      >
-        <Tv className="h-3 w-3 text-cobalt" />
-        <span>AniList 시청 목록에서 고르기</span>
-        {activeBadge && (
-          <span className="rounded bg-cobalt-soft px-1.5 py-0.5 text-[10px] font-semibold text-cobalt-ink">
-            @{activeBadge}
-          </span>
-        )}
-        {open ? (
-          <ChevronUp className="h-3 w-3 text-muted" />
-        ) : (
-          <ChevronDown className="h-3 w-3 text-muted" />
-        )}
-      </button>
+  if (hideToggleButton && !isOpen) {
+    return null;
+  }
 
-      {open && (
-        <div className="mt-2 rounded-md border border-hairline-strong bg-sheet-muted p-3">
+  return (
+    <div className={hideToggleButton ? "mt-2" : "mt-2.5"}>
+      {!hideToggleButton && (
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="inline-flex items-center gap-1.5 rounded border border-hairline bg-sheet-muted px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
+        >
+          <Tv className="h-3 w-3 text-cobalt" />
+          <span>AniList 시청 목록에서 고르기</span>
+          {activeBadge && (
+            <span className="rounded bg-cobalt-soft px-1.5 py-0.5 text-[10px] font-semibold text-cobalt-ink">
+              @{activeBadge}
+            </span>
+          )}
+          {isOpen ? (
+            <ChevronUp className="h-3 w-3 text-muted" />
+          ) : (
+            <ChevronDown className="h-3 w-3 text-muted" />
+          )}
+        </button>
+      )}
+
+      {isOpen && (
+        <div
+          className={`${hideToggleButton ? "" : "mt-2 "}rounded-md border border-hairline-strong bg-sheet-muted p-3`}
+        >
           <div className="flex gap-1.5">
             <input
               type="text"

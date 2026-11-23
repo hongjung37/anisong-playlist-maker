@@ -45,6 +45,9 @@ interface WatchedAnimePanelProps {
   items: WatchedAnimeItem[];
   seeds: string[];
   maxSeeds?: number;
+  open?: boolean;
+  onToggleOpen?: () => void;
+  hideToggleButton?: boolean;
   onAddSeed: (seed: string) => void;
   onRemoveSeed: (seed: string) => void;
   onChangeItems: (items: WatchedAnimeItem[]) => void;
@@ -54,11 +57,23 @@ export function WatchedAnimePanel({
   items,
   seeds,
   maxSeeds = 6,
+  open: controlledOpen,
+  onToggleOpen,
+  hideToggleButton = false,
   onAddSeed,
   onRemoveSeed,
   onChangeItems,
 }: WatchedAnimePanelProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen =
+    typeof controlledOpen === "boolean" ? controlledOpen : internalOpen;
+  const handleToggle = () => {
+    if (onToggleOpen) {
+      onToggleOpen();
+    } else {
+      setInternalOpen((prev) => !prev);
+    }
+  };
   const [ratingTab, setRatingTab] = useState<RatingTab>("ALL");
   const [genreFilter, setGenreFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -169,33 +184,41 @@ export function WatchedAnimePanel({
     }
   };
 
-  return (
-    <div className="mt-2.5">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-1.5 rounded border border-hairline bg-sheet-muted px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
-      >
-        <BookMarked className="h-3 w-3 text-obi" />
-        <span>내 본 작품 보관함</span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
-            items.length > 0
-              ? "bg-obi-soft text-obi-ink"
-              : "bg-sheet text-muted"
-          }`}
-        >
-          {items.length}작품
-        </span>
-        {open ? (
-          <ChevronUp className="h-3 w-3 text-muted" />
-        ) : (
-          <ChevronDown className="h-3 w-3 text-muted" />
-        )}
-      </button>
+  if (hideToggleButton && !isOpen) {
+    return null;
+  }
 
-      {open && (
-        <div className="mt-2 rounded-md border border-hairline-strong bg-sheet-muted p-3">
+  return (
+    <div className={hideToggleButton ? "mt-2" : "mt-2.5"}>
+      {!hideToggleButton && (
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="inline-flex items-center gap-1.5 rounded border border-hairline bg-sheet-muted px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink"
+        >
+          <BookMarked className="h-3 w-3 text-obi" />
+          <span>내 본 작품 보관함</span>
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+              items.length > 0
+                ? "bg-obi-soft text-obi-ink"
+                : "bg-sheet text-muted"
+            }`}
+          >
+            {items.length}작품
+          </span>
+          {isOpen ? (
+            <ChevronUp className="h-3 w-3 text-muted" />
+          ) : (
+            <ChevronDown className="h-3 w-3 text-muted" />
+          )}
+        </button>
+      )}
+
+      {isOpen && (
+        <div
+          className={`${hideToggleButton ? "" : "mt-2 "}rounded-md border border-hairline-strong bg-sheet-muted p-3`}
+        >
           {/* Rating tabs + Random Pick */}
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <div className="flex flex-wrap gap-1">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   readUserData,
+  removeUserPlaylistHistoryEntry,
   resolveUserAccountKey,
   saveUserAniListUsername,
   saveUserCustomPresets,
@@ -103,6 +104,18 @@ export async function DELETE(request: NextRequest) {
         appendHistory: false,
         accountKey,
       });
+      return NextResponse.json(updated);
+    }
+
+    if (target === "historyEntry") {
+      const id = (request.nextUrl.searchParams.get("id") ?? "").trim();
+      if (!id) {
+        return NextResponse.json(
+          { error: "삭제할 히스토리 ID를 지정해 주세요." },
+          { status: 400 }
+        );
+      }
+      const updated = await removeUserPlaylistHistoryEntry(id, accountKey);
       return NextResponse.json(updated);
     }
 

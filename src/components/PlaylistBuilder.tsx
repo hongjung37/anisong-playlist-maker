@@ -4,9 +4,13 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import {
   Bookmark,
+  BookMarked,
+  ChevronDown,
+  ChevronUp,
   Search,
   Plus,
   RotateCcw,
+  Tv,
   X,
   Disc3,
   Loader2,
@@ -219,6 +223,10 @@ export function PlaylistBuilder({
   const [prompt, setPrompt] = useState<string>("");
   const [savingPresetOpen, setSavingPresetOpen] = useState(false);
   const [presetNameInput, setPresetNameInput] = useState("");
+  const [activeSeedDrawer, setActiveSeedDrawer] = useState<
+    "watched" | "anilist" | null
+  >(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     const q = seedInput.trim();
@@ -375,10 +383,10 @@ export function PlaylistBuilder({
   return (
     <form
       onSubmit={handleSubmit}
-      className="overflow-hidden rounded-lg border border-hairline bg-sheet"
+      className="rounded-lg border border-hairline bg-sheet"
     >
       {/* Workbench Header */}
-      <div className="flex items-center justify-between border-b border-hairline bg-sheet-muted px-5 py-3.5">
+      <div className="flex items-center justify-between rounded-t-lg border-b border-hairline bg-sheet-muted px-5 py-3.5">
         <div className="flex items-center gap-2 text-sm font-semibold text-ink">
           <SlidersHorizontal className="h-4 w-4 text-cobalt" />
           선곡 조건
@@ -617,9 +625,60 @@ export function PlaylistBuilder({
             </div>
           )}
 
+          {/* Unified Seed Source Tabs */}
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() =>
+                setActiveSeedDrawer((prev) =>
+                  prev === "watched" ? null : "watched"
+                )
+              }
+              className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
+                activeSeedDrawer === "watched"
+                  ? "border-obi bg-obi-soft text-obi-ink"
+                  : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+              }`}
+            >
+              <BookMarked className="h-3 w-3 shrink-0 text-obi" />
+              <span className="truncate">내 본 작품 ({watchedAnime.length})</span>
+              {activeSeedDrawer === "watched" ? (
+                <ChevronUp className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setActiveSeedDrawer((prev) =>
+                  prev === "anilist" ? null : "anilist"
+                )
+              }
+              className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
+                activeSeedDrawer === "anilist"
+                  ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                  : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+              }`}
+            >
+              <Tv className="h-3 w-3 shrink-0 text-cobalt" />
+              <span className="truncate">
+                AniList 목록{initialAnilistUsername ? ` (@${initialAnilistUsername})` : ""}
+              </span>
+              {activeSeedDrawer === "anilist" ? (
+                <ChevronUp className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              )}
+            </button>
+          </div>
+
           <WatchedAnimePanel
             items={watchedAnime}
             seeds={seeds}
+            open={activeSeedDrawer === "watched"}
+            hideToggleButton
             onAddSeed={addSeed}
             onRemoveSeed={removeSeed}
             onChangeItems={(next) => onChangeWatchedAnime?.(next)}
@@ -628,6 +687,8 @@ export function PlaylistBuilder({
           <AniListSeedImporter
             initialUsername={initialAnilistUsername}
             seeds={seeds}
+            open={activeSeedDrawer === "anilist"}
+            hideToggleButton
             onAddSeed={addSeed}
             onRemoveSeed={removeSeed}
           />
@@ -731,176 +792,217 @@ export function PlaylistBuilder({
           </div>
         </div>
 
-        {/* Theme Types */}
+        {/* Track Count */}
         <div className="py-4">
-          <div className="mb-2 text-xs font-semibold text-ink">곡 유형</div>
-          <div className="grid grid-cols-5 gap-1.5">
-            {THEME_TYPE_OPTIONS.map((opt) => {
-              const active = themeTypes.includes(opt.value);
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => toggleThemeType(opt.value)}
-                  className={`flex flex-col items-center rounded-md border py-2 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
-                    active
-                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
-                      : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
-                  }`}
-                >
-                  <span className="text-xs font-semibold">{opt.label}</span>
-                  <span className="text-[10px] opacity-80">{opt.hint}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Era & Track Count */}
-        <div className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-2">
-          <div>
-            <label
-              htmlFor="era-select"
-              className="mb-1.5 block text-xs font-semibold text-ink"
-            >
-              방영 연대
-            </label>
-            <select
-              id="era-select"
-              value={era}
-              onChange={(e) => setEra(e.target.value as EraFilter)}
-              className="w-full rounded-md border border-hairline-strong bg-sheet px-2.5 py-2 text-xs font-medium text-ink focus:border-cobalt focus:outline-none"
-            >
-              {ERA_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <div className="mb-1.5 text-xs font-semibold text-ink">트랙 수</div>
-            <div className="grid grid-cols-4 gap-1">
-              {[8, 12, 16, 20].map((num) => (
-                <button
-                  key={num}
-                  type="button"
-                  onClick={() => setTrackCount(num)}
-                  className={`rounded-md border py-2 text-xs font-semibold tabular-nums transition ${
-                    trackCount === num
-                      ? "border-ink bg-ink text-sheet"
-                      : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
-                  }`}
-                >
-                  {num}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Popularity Slider (Major <-> Minor) */}
-        <div className="py-4">
-          <div className="mb-2 flex items-baseline justify-between gap-2">
-            <label
-              htmlFor="popularity-slider"
-              className="flex items-center gap-1.5 text-xs font-semibold text-ink"
-            >
-              <Gem className="h-3.5 w-3.5 shrink-0 text-obi" />
-              인지도 / 대중성 (메이저 ↔ 마이너)
-            </label>
-            <span className="text-[11px] font-semibold text-cobalt-ink">
-              {activePopularity?.badge} · {activePopularity?.title}
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-xs font-semibold text-ink">트랙 수</span>
+            <span className="text-[11px] font-semibold tabular-nums text-cobalt-ink">
+              {trackCount}곡
             </span>
           </div>
-
-          <input
-            id="popularity-slider"
-            type="range"
-            min={1}
-            max={4}
-            step={1}
-            value={popularityLevel}
-            onChange={(e) =>
-              setPopularityLevel(Number(e.target.value) as PopularityLevel)
-            }
-            className="mb-2.5 h-1.5 w-full cursor-pointer accent-cobalt"
-          />
-
-          <div className="grid grid-cols-4 gap-1">
-            {POPULARITY_STEPS.map((step) => {
-              const active = popularityLevel === step.level;
-              return (
-                <button
-                  key={step.level}
-                  type="button"
-                  onClick={() => setPopularityLevel(step.level)}
-                  className={`flex flex-col items-center rounded border py-1.5 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
-                    active
-                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
-                      : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
-                  }`}
-                >
-                  <span className="text-[10px] font-bold">{step.badge}</span>
-                  <span className="text-[10px] leading-tight">{step.title}</span>
-                </button>
-              );
-            })}
+          <div className="grid grid-cols-4 gap-1.5">
+            {[8, 12, 16, 20].map((num) => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => setTrackCount(num)}
+                className={`rounded-md border py-2 text-xs font-semibold tabular-nums transition ${
+                  trackCount === num
+                    ? "border-ink bg-ink text-sheet"
+                    : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                }`}
+              >
+                {num}곡
+              </button>
+            ))}
           </div>
-          {activePopularity && (
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-              {activePopularity.desc}
-            </p>
-          )}
         </div>
 
-        {/* Exclude Recent Playlists */}
+        {/* Collapsible Advanced Tuning */}
         <div className="py-4">
-          <label className="flex cursor-pointer items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cobalt" />
-              <div>
-                <div className="text-xs font-semibold text-ink">
-                  이전 생성 플리 중복 제외
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <div>
+              <div className="text-xs font-semibold text-ink">
+                세부 튜닝
+              </div>
+              {!advancedOpen && (
+                <div className="mt-0.5 text-[11px] text-muted">
+                  {activePopularity?.title} ·{" "}
+                  {ERA_OPTIONS.find((e) => e.value === era)?.label} ·{" "}
+                  {themeTypes.join("/")} ·{" "}
+                  {excludeRecentEnabled
+                    ? `중복제외 ${recentExcludeTurns}턴`
+                    : "중복허용"}
                 </div>
-                <div className="mt-0.5 text-[11px] leading-relaxed text-muted">
-                  {playlistHistory.length === 0
-                    ? "생성 이력이 쌓이면 이전 플리에 나온 곡과 겹치지 않게 제외합니다"
-                    : excludeRecentEnabled
-                      ? `최근 ${Math.min(recentExcludeTurns, playlistHistory.length)}턴 (${excludedTrackCount}곡)을 이번 선곡에서 제외합니다`
-                      : "이전 생성 플리와의 곡 중복을 허용합니다"}
+              )}
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-hairline bg-sheet-muted px-2 py-1 text-[11px] font-medium text-ink-soft">
+              {advancedOpen ? "접기" : "펼치기"}
+              {advancedOpen ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+            </span>
+          </button>
+
+          {advancedOpen && (
+            <div className="mt-4 space-y-4 border-t border-hairline/70 pt-4">
+              {/* Theme Types */}
+              <div>
+                <div className="mb-2 text-xs font-semibold text-ink">곡 유형</div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {THEME_TYPE_OPTIONS.map((opt) => {
+                    const active = themeTypes.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => toggleThemeType(opt.value)}
+                        className={`flex flex-col items-center rounded-md border py-2 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                          active
+                            ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                            : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                        }`}
+                      >
+                        <span className="text-xs font-semibold">{opt.label}</span>
+                        <span className="text-[10px] opacity-80">{opt.hint}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
-            <input
-              id="exclude-recent-toggle"
-              type="checkbox"
-              checked={excludeRecentEnabled}
-              onChange={(e) => setExcludeRecentEnabled(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-cobalt"
-            />
-          </label>
 
-          {excludeRecentEnabled && (
-            <div className="mt-2.5 grid grid-cols-3 gap-1">
-              {([1, 3, 5] as const).map((turns) => {
-                const active = recentExcludeTurns === turns;
-                return (
-                  <button
-                    key={turns}
-                    type="button"
-                    onClick={() => setRecentExcludeTurns(turns)}
-                    className={`rounded border py-1.5 text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-cobalt ${
-                      active
-                        ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
-                        : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
-                    }`}
+              {/* Era */}
+              <div>
+                <label
+                  htmlFor="era-select"
+                  className="mb-1.5 block text-xs font-semibold text-ink"
+                >
+                  방영 연대
+                </label>
+                <select
+                  id="era-select"
+                  value={era}
+                  onChange={(e) => setEra(e.target.value as EraFilter)}
+                  className="w-full rounded-md border border-hairline-strong bg-sheet px-2.5 py-2 text-xs font-medium text-ink focus:border-cobalt focus:outline-none"
+                >
+                  {ERA_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Popularity Slider (Major <-> Minor) */}
+              <div>
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <label
+                    htmlFor="popularity-slider"
+                    className="flex items-center gap-1.5 text-xs font-semibold text-ink"
                   >
-                    {turns === 1 ? "직전 1턴" : `최근 ${turns}턴`}
-                  </button>
-                );
-              })}
+                    <Gem className="h-3.5 w-3.5 shrink-0 text-obi" />
+                    인지도 / 대중성 (메이저 ↔ 마이너)
+                  </label>
+                  <span className="text-[11px] font-semibold text-cobalt-ink">
+                    {activePopularity?.badge} · {activePopularity?.title}
+                  </span>
+                </div>
+
+                <input
+                  id="popularity-slider"
+                  type="range"
+                  min={1}
+                  max={4}
+                  step={1}
+                  value={popularityLevel}
+                  onChange={(e) =>
+                    setPopularityLevel(Number(e.target.value) as PopularityLevel)
+                  }
+                  className="mb-2.5 h-1.5 w-full cursor-pointer accent-cobalt"
+                />
+
+                <div className="grid grid-cols-4 gap-1">
+                  {POPULARITY_STEPS.map((step) => {
+                    const active = popularityLevel === step.level;
+                    return (
+                      <button
+                        key={step.level}
+                        type="button"
+                        onClick={() => setPopularityLevel(step.level)}
+                        className={`flex flex-col items-center rounded border py-1.5 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                          active
+                            ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                            : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                        }`}
+                      >
+                        <span className="text-[10px] font-bold">{step.badge}</span>
+                        <span className="text-[10px] leading-tight">{step.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {activePopularity && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+                    {activePopularity.desc}
+                  </p>
+                )}
+              </div>
+
+              {/* Exclude Recent Playlists */}
+              <div>
+                <label className="flex cursor-pointer items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cobalt" />
+                    <div>
+                      <div className="text-xs font-semibold text-ink">
+                        이전 생성 플리 중복 제외
+                      </div>
+                      <div className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                        {playlistHistory.length === 0
+                          ? "생성 이력이 쌓이면 이전 플리에 나온 곡과 겹치지 않게 제외합니다"
+                          : excludeRecentEnabled
+                            ? `최근 ${Math.min(recentExcludeTurns, playlistHistory.length)}턴 (${excludedTrackCount}곡)을 이번 선곡에서 제외합니다`
+                            : "이전 생성 플리와의 곡 중복을 허용합니다"}
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    id="exclude-recent-toggle"
+                    type="checkbox"
+                    checked={excludeRecentEnabled}
+                    onChange={(e) => setExcludeRecentEnabled(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-cobalt"
+                  />
+                </label>
+
+                {excludeRecentEnabled && (
+                  <div className="mt-2.5 grid grid-cols-3 gap-1">
+                    {([1, 3, 5] as const).map((turns) => {
+                      const active = recentExcludeTurns === turns;
+                      return (
+                        <button
+                          key={turns}
+                          type="button"
+                          onClick={() => setRecentExcludeTurns(turns)}
+                          className={`rounded border py-1.5 text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                            active
+                              ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                              : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                          }`}
+                        >
+                          {turns === 1 ? "직전 1턴" : `최근 ${turns}턴`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -924,8 +1026,8 @@ export function PlaylistBuilder({
         </div>
       </div>
 
-      {/* Primary Action */}
-      <div className="border-t border-hairline bg-sheet-muted p-5">
+      {/* Sticky Primary Action */}
+      <div className="sticky bottom-0 z-10 rounded-b-lg border-t border-hairline bg-sheet/95 p-4 backdrop-blur-sm">
         {tasteProfile && (
           <div className="mb-2.5 flex items-center justify-between text-[11px]">
             <span className="text-muted">내 취향 DNA 프롬프트 반영</span>

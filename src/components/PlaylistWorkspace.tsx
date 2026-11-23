@@ -500,6 +500,27 @@ export function PlaylistWorkspace({
   };
 
   const firstCover = playlist.tracks.find((t) => t.coverImage)?.coverImage;
+  const showSpotify = Boolean(authStatus?.spotifyConnected);
+
+  const arcSections: Array<{
+    section: string;
+    count: number;
+    firstTrackId: string;
+  }> = [];
+  for (const track of playlist.tracks) {
+    const sec = track.setlistSection?.trim();
+    if (!sec) continue;
+    const last = arcSections[arcSections.length - 1];
+    if (last && last.section === sec) {
+      last.count += 1;
+    } else {
+      arcSections.push({ section: sec, count: 1, firstTrackId: track.id });
+    }
+  }
+  const hasKnownMetadata = playlist.tracks.some(
+    (t) => t.inUserLibrary !== undefined
+  );
+  const knownCount = playlist.tracks.filter((t) => t.inUserLibrary).length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -605,8 +626,14 @@ export function PlaylistWorkspace({
               </div>
             </div>
 
-            {/* Platform Save Bar */}
-            <div className="mt-5 grid grid-cols-1 gap-3 border-t border-hairline pt-4 md:grid-cols-2">
+            {/* Platform Save Bar (YouTube Music First) */}
+            <div
+              className={`mt-5 border-t border-hairline pt-4 ${
+                showSpotify
+                  ? "grid grid-cols-1 gap-3 md:grid-cols-2"
+                  : "space-y-2"
+              }`}
+            >
               {/* YouTube Music Save */}
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline bg-sheet-muted p-2.5">
                 <div className="flex items-center gap-2">
@@ -645,7 +672,7 @@ export function PlaylistWorkspace({
                         저장 중...
                       </>
                     ) : (
-                      <>계정에 저장</>
+                      <>YouTube Music에 저장</>
                     )}
                   </button>
                 ) : authStatus?.youtubeConfigured ? (
@@ -666,25 +693,25 @@ export function PlaylistWorkspace({
                 )}
               </div>
 
-              {/* Spotify Save */}
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline bg-sheet-muted p-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-semibold text-ink">
-                    Spotify
-                  </span>
-                  <select
-                    value={spPublic ? "public" : "private"}
-                    onChange={(e) => setSpPublic(e.target.value === "public")}
-                    aria-label="Spotify 공개 설정"
-                    className="rounded border border-hairline-strong bg-sheet px-1.5 py-0.5 text-[11px] text-ink-soft"
-                  >
-                    <option value="private">비공개</option>
-                    <option value="public">공개</option>
-                  </select>
-                </div>
+              {/* Spotify Save (full box only when connected; subtle link otherwise) */}
+              {showSpotify ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-hairline bg-sheet-muted p-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    <span className="text-xs font-semibold text-ink">
+                      Spotify
+                    </span>
+                    <select
+                      value={spPublic ? "public" : "private"}
+                      onChange={(e) => setSpPublic(e.target.value === "public")}
+                      aria-label="Spotify 공개 설정"
+                      className="rounded border border-hairline-strong bg-sheet px-1.5 py-0.5 text-[11px] text-ink-soft"
+                    >
+                      <option value="private">비공개</option>
+                      <option value="public">공개</option>
+                    </select>
+                  </div>
 
-                {authStatus?.spotifyConnected ? (
                   <button
                     type="button"
                     disabled={
@@ -702,23 +729,17 @@ export function PlaylistWorkspace({
                       <>계정에 저장</>
                     )}
                   </button>
-                ) : authStatus?.spotifyConfigured ? (
+                </div>
+              ) : authStatus?.spotifyConfigured ? (
+                <div className="flex justify-end">
                   <a
                     href="/api/auth/spotify/login"
-                    className="inline-flex items-center rounded border border-emerald-500/35 bg-sheet px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+                    className="text-[11px] font-medium text-muted hover:text-emerald-600 hover:underline dark:hover:text-emerald-400"
                   >
-                    Spotify 로그인
+                    Spotify 계정도 함께 연결하기
                   </a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onOpenSetup}
-                    className="rounded border border-hairline-strong bg-sheet px-2.5 py-1 text-[11px] font-medium text-muted hover:text-ink"
-                  >
-                    연동 설정 필요
-                  </button>
-                )}
-              </div>
+                </div>
+              ) : null}
             </div>
 
             {exportError && (
@@ -832,6 +853,53 @@ export function PlaylistWorkspace({
           </div>
         </div>
 
+        {(arcSections.length > 0 || hasKnownMetadata) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline bg-sheet px-5 py-2 text-[11px]">
+            {arcSections.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="mr-1 font-semibold text-muted">셋리 흐름</span>
+                {arcSections.map((group, gIdx) => (
+                  <span
+                    key={`${group.section}-${group.firstTrackId}`}
+                    className="inline-flex items-center gap-1"
+                  >
+                    {gIdx > 0 && (
+                      <span className="text-muted/60" aria-hidden="true">
+                        →
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        document
+                          .getElementById(`track-row-${group.firstTrackId}`)
+                          ?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          })
+                      }
+                      className="rounded border border-hairline bg-sheet-muted px-2 py-0.5 font-medium text-ink-soft transition hover:border-cobalt/40 hover:text-cobalt-ink"
+                    >
+                      {group.section}{" "}
+                      <span className="tabular-nums text-muted">
+                        {group.count}
+                      </span>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span />
+            )}
+
+            {hasKnownMetadata && (
+              <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                아는 곡 {knownCount} / {playlist.tracks.length}곡
+              </span>
+            )}
+          </div>
+        )}
+
         {trackActionError && (
           <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-5 py-2 text-xs text-red-800 dark:text-red-200">
             <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
@@ -858,6 +926,7 @@ export function PlaylistWorkspace({
             return (
               <li
                 key={track.id}
+                id={`track-row-${track.id}`}
                 draggable
                 onDragStart={(e) => {
                   setDragIndex(idx);
@@ -939,7 +1008,7 @@ export function PlaylistWorkspace({
                     </div>
                   </div>
 
-                  {/* Track Body */}
+                  {/* Track Body (2-line hierarchy + unified interactive known badge) */}
                   <div className="min-w-0 flex-1">
                     <div className="hidden sm:flex sm:flex-wrap sm:items-baseline sm:gap-2">
                       <h3 className="text-sm font-bold text-ink">
@@ -951,6 +1020,9 @@ export function PlaylistWorkspace({
                             {track.titleRomaji}
                           </span>
                         )}
+                      <span className="text-xs font-medium text-ink-soft">
+                        · {track.artist}
+                      </span>
                       {isCurrent && (
                         <span className="rounded bg-cobalt px-1.5 py-0.5 text-[10px] font-semibold text-white">
                           {isPlaying ? "재생 중" : "선택됨"}
@@ -959,9 +1031,6 @@ export function PlaylistWorkspace({
                     </div>
 
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                      <span className="hidden font-medium text-ink-soft sm:inline">
-                        {track.artist}
-                      </span>
                       <span className="font-semibold text-cobalt-ink">
                         {track.animeTitle}
                       </span>
@@ -970,22 +1039,6 @@ export function PlaylistWorkspace({
                       >
                         {track.themeLabel}
                       </span>
-                      {track.setlistSection && (
-                        <span className="rounded border border-hairline bg-sheet-muted px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
-                          {track.setlistSection}
-                        </span>
-                      )}
-                      {track.inUserLibrary !== undefined && (
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                            track.inUserLibrary
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                              : "bg-cobalt-soft text-cobalt-ink"
-                          }`}
-                        >
-                          {track.inUserLibrary ? "내 라이브러리" : "신규 추천"}
-                        </span>
-                      )}
                       {track.year && (
                         <span className="text-[11px] tabular-nums text-muted">
                           {track.year}
@@ -994,6 +1047,26 @@ export function PlaylistWorkspace({
                       <span className="text-[11px] text-muted">
                         {track.bpmVibe}
                       </span>
+                      <button
+                        type="button"
+                        disabled={isTogglingKnown}
+                        onClick={() => void handleToggleKnown(track)}
+                        className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+                          track.inUserLibrary
+                            ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                            : "border-hairline bg-sheet text-muted hover:border-cobalt/40 hover:text-cobalt-ink"
+                        } disabled:opacity-50`}
+                        title="클릭하여 내 아는 곡 목록에 추가/해제"
+                      >
+                        {isTogglingKnown ? (
+                          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                        ) : track.inUserLibrary ? (
+                          <BookmarkCheck className="h-2.5 w-2.5" />
+                        ) : (
+                          <BookmarkPlus className="h-2.5 w-2.5" />
+                        )}
+                        {track.inUserLibrary ? "내 아는 곡" : "아는 곡 등록"}
+                      </button>
                     </div>
 
                     <p className="mt-1.5 max-w-[74ch] text-xs leading-relaxed text-ink-soft">
@@ -1026,38 +1099,19 @@ export function PlaylistWorkspace({
                       >
                         YT Music <ExternalLink className="h-2.5 w-2.5" />
                       </a>
-                      <a
-                        href={track.spotifyUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
-                      >
-                        Spotify <ExternalLink className="h-2.5 w-2.5" />
-                      </a>
+                      {showSpotify && (
+                        <a
+                          href={track.spotifyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
+                        >
+                          Spotify <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1 text-muted sm:opacity-85 sm:group-hover:opacity-100">
-                      <button
-                        type="button"
-                        disabled={isTogglingKnown}
-                        onClick={() => void handleToggleKnown(track)}
-                        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold transition ${
-                          track.inUserLibrary
-                            ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
-                            : "border-hairline bg-sheet text-ink-soft hover:border-hairline-strong hover:text-ink"
-                        } disabled:opacity-50`}
-                        title="내 아는 곡 목록에 추가/해제"
-                      >
-                        {isTogglingKnown ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : track.inUserLibrary ? (
-                          <BookmarkCheck className="h-3 w-3" />
-                        ) : (
-                          <BookmarkPlus className="h-3 w-3" />
-                        )}
-                        {track.inUserLibrary ? "아는 곡 ✓" : "아는 곡"}
-                      </button>
-
                       <button
                         type="button"
                         disabled={isRerolling || extending}

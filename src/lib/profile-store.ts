@@ -180,6 +180,26 @@ export async function saveUserCustomPresets(
   });
 }
 
+export async function removeUserPlaylistHistoryEntry(
+  entryId: string,
+  accountKey?: string
+): Promise<StoredUserData> {
+  const key = accountKey ?? (await resolveUserAccountKey());
+  return enqueueAccountMutation(key, async () => {
+    const current = await readUserData(key);
+    const nextHistory = current.playlistHistory.filter(
+      (entry) => entry.id !== entryId
+    );
+    if (nextHistory.length === current.playlistHistory.length) {
+      return current;
+    }
+    return writeUserData({
+      ...current,
+      playlistHistory: nextHistory,
+    });
+  });
+}
+
 export async function saveUserAniListUsername(
   anilistUsername: string | null,
   accountKey?: string

@@ -4,6 +4,8 @@ import { useState } from "react";
 import {
   AudioLines,
   Check,
+  ChevronDown,
+  ChevronUp,
   ListMusic,
   Loader2,
   RefreshCw,
@@ -82,6 +84,7 @@ export function TasteProfilePanel({
     () => tasteProfile?.selectedSources.map((s) => s.id) ?? []
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const [loadingList, setLoadingList] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -298,39 +301,210 @@ export function TasteProfilePanel({
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {/* Action buttons */}
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={handleLoadLibrary}
-              disabled={loadingList || analyzing}
-              className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong bg-sheet px-2.5 py-1.5 text-xs font-medium text-ink transition hover:bg-sheet-muted disabled:opacity-50"
-            >
-              {loadingList ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ListMusic className="h-3.5 w-3.5 text-obi" />
-              )}
-              {tasteProfile ? "플리 소스 바꾸기" : "내 플리 · 좋아요 불러오기"}
-            </button>
-
-            {tasteProfile && (
+        <div className="space-y-2.5">
+          {/* Action buttons shown directly only before a TasteProfile exists */}
+          {!tasteProfile && (
+            <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => handleAnalyze(true)}
-                disabled={analyzing || loadingList}
-                className="inline-flex items-center gap-1 rounded-md border border-hairline bg-sheet-muted px-2.5 py-1.5 text-xs font-medium text-ink-soft transition hover:text-ink disabled:opacity-50"
+                onClick={handleLoadLibrary}
+                disabled={loadingList || analyzing}
+                className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong bg-sheet px-2.5 py-1.5 text-xs font-medium text-ink transition hover:bg-sheet-muted disabled:opacity-50"
               >
-                {analyzing ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                {loadingList ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-3 w-3" />
+                  <ListMusic className="h-3.5 w-3.5 text-obi" />
                 )}
-                다시 분석
+                내 플리 · 좋아요 불러오기
               </button>
-            )}
-          </div>
+            </div>
+          )}
+
+          {statusMessage && (
+            <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-800 dark:text-emerald-200">
+              {statusMessage}
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-800 dark:text-red-200">
+              {error}
+            </div>
+          )}
+
+          {/* Saved Taste DNA Summary + 5-stage familiarity selector */}
+          {tasteProfile && (
+            <div className="space-y-2.5 rounded-md border border-hairline bg-sheet-muted p-3">
+              {!useTasteDna && (
+                <div className="flex items-center justify-between gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+                  <span>
+                    취향 DNA 반영 꺼짐 — 시드·무드 조건만으로 새로운 곡을 찾습니다.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleUseTasteDna(true)}
+                    className="shrink-0 font-semibold underline hover:opacity-80"
+                  >
+                    다시 켜기
+                  </button>
+                </div>
+              )}
+
+              {/* 5-Stage Familiarity Ratio (always accessible) */}
+              <div
+                className={
+                  useTasteDna ? "" : "pointer-events-none opacity-45"
+                }
+              >
+                <div className="mb-1.5 flex items-baseline justify-between">
+                  <span className="text-[11px] font-semibold text-ink">
+                    아는 곡 포함 비중
+                  </span>
+                  <span className="text-[11px] font-semibold tabular-nums text-cobalt-ink">
+                    {activeFamiliarity?.title} ({activeFamiliarity?.ratio})
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {FAMILIARITY_STEPS.map((step) => {
+                    const active = familiarityLevel === step.level;
+                    return (
+                      <button
+                        key={step.level}
+                        type="button"
+                        disabled={!useTasteDna}
+                        onClick={() => onChangeFamiliarity(step.level)}
+                        className={`flex flex-col items-center rounded border py-1.5 text-center transition ${
+                          active
+                            ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                            : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
+                        }`}
+                      >
+                        <span className="text-[11px] font-bold tabular-nums">
+                          {step.ratio}
+                        </span>
+                        <span className="text-[10px] leading-tight">
+                          {step.title}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {activeFamiliarity && (
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    {activeFamiliarity.desc}
+                  </p>
+                )}
+              </div>
+
+              {/* Collapsible DNA summary & source controls */}
+              <div className="border-t border-hairline pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between text-left text-[11px] font-medium text-ink-soft hover:text-ink"
+                >
+                  <span>
+                    취향 DNA 상세 · 플리 소스 관리 ({tasteProfile.knownTracks.length}곡)
+                  </span>
+                  {detailsOpen || pickerOpen ? (
+                    <ChevronUp className="h-3.5 w-3.5 text-muted" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-muted" />
+                  )}
+                </button>
+
+                {(detailsOpen || pickerOpen) && (
+                  <div className="mt-2.5 space-y-2.5">
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleLoadLibrary}
+                        disabled={loadingList || analyzing}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-hairline-strong bg-sheet px-2.5 py-1 text-[11px] font-medium text-ink transition hover:bg-sheet-muted disabled:opacity-50"
+                      >
+                        {loadingList ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <ListMusic className="h-3 w-3 text-obi" />
+                        )}
+                        플리 소스 바꾸기
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAnalyze(true)}
+                        disabled={analyzing || loadingList}
+                        className="inline-flex items-center gap-1 rounded-md border border-hairline bg-sheet px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:text-ink disabled:opacity-50"
+                      >
+                        {analyzing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                        다시 분석
+                      </button>
+                    </div>
+
+                    <div
+                      className={
+                        useTasteDna ? "" : "opacity-50 transition-opacity"
+                      }
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted">
+                        <span>{tasteProfile.dna.eraPreference}</span>
+                        <span
+                          className={`rounded border border-hairline bg-sheet px-1.5 py-0.5 text-[10px] ${
+                            useTasteDna
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : "text-muted"
+                          }`}
+                        >
+                          {useTasteDna ? "선곡에 반영 중" : "이번 선곡 제외됨"}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-ink">
+                        {tasteProfile.dna.summary}
+                      </p>
+
+                      {tasteProfile.dna.sonicTraits.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {tasteProfile.dna.sonicTraits.map((trait) => (
+                            <span
+                              key={trait}
+                              className="rounded border border-hairline bg-sheet px-2 py-0.5 text-[10px] font-medium text-ink-soft"
+                            >
+                              {trait}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {tasteProfile.dna.recommendedSeeds.length > 0 && (
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                          <span className="text-[10px] font-semibold text-muted">
+                            추천 시드:
+                          </span>
+                          {tasteProfile.dna.recommendedSeeds.map((seed) => (
+                            <button
+                              key={seed}
+                              type="button"
+                              onClick={() => onAddSeed(seed)}
+                              className="inline-flex items-center gap-0.5 rounded bg-cobalt-soft px-1.5 py-0.5 text-[10px] font-medium text-cobalt-ink hover:brightness-95"
+                              title="시드에 추가"
+                            >
+                              <Plus className="h-2.5 w-2.5" />
+                              {seed}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Playlist Picker */}
           {pickerOpen && playlists.length > 0 && (
@@ -397,138 +571,6 @@ export function TasteProfilePanel({
                   <>선택한 {selectedIds.length}개 소스로 취향 DNA 저장</>
                 )}
               </button>
-            </div>
-          )}
-
-          {statusMessage && (
-            <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-800 dark:text-emerald-200">
-              {statusMessage}
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-800 dark:text-red-200">
-              {error}
-            </div>
-          )}
-
-          {/* Saved Taste DNA Summary + 4-stage familiarity selector */}
-          {tasteProfile && (
-            <div className="space-y-3 rounded-md border border-hairline bg-sheet-muted p-3">
-              {!useTasteDna && (
-                <div className="flex items-center justify-between gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
-                  <span>
-                    취향 DNA 반영 꺼짐 — 내 취향을 빼고 시드·무드 조건만으로 새로운 곡을 찾습니다.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onToggleUseTasteDna(true)}
-                    className="shrink-0 font-semibold underline hover:opacity-80"
-                  >
-                    다시 켜기
-                  </button>
-                </div>
-              )}
-
-              <div className={useTasteDna ? "" : "opacity-50 transition-opacity"}>
-                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted">
-                  <span>
-                    반영 곡 {tasteProfile.knownTracks.length}개 ·{" "}
-                    {tasteProfile.dna.eraPreference}
-                  </span>
-                  <span
-                    className={`rounded border border-hairline bg-sheet px-1.5 py-0.5 text-[10px] ${
-                      useTasteDna
-                        ? "text-emerald-700 dark:text-emerald-300"
-                        : "text-muted"
-                    }`}
-                  >
-                    {useTasteDna ? "선곡에 반영 중" : "이번 선곡 제외됨"}
-                  </span>
-                </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink">
-                  {tasteProfile.dna.summary}
-                </p>
-
-                {tasteProfile.dna.sonicTraits.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {tasteProfile.dna.sonicTraits.map((trait) => (
-                      <span
-                        key={trait}
-                        className="rounded border border-hairline bg-sheet px-2 py-0.5 text-[10px] font-medium text-ink-soft"
-                      >
-                        {trait}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {tasteProfile.dna.recommendedSeeds.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] font-semibold text-muted">
-                      추천 시드:
-                    </span>
-                    {tasteProfile.dna.recommendedSeeds.map((seed) => (
-                      <button
-                        key={seed}
-                        type="button"
-                        onClick={() => onAddSeed(seed)}
-                        className="inline-flex items-center gap-0.5 rounded bg-cobalt-soft px-1.5 py-0.5 text-[10px] font-medium text-cobalt-ink hover:brightness-95"
-                        title="시드에 추가"
-                      >
-                        <Plus className="h-2.5 w-2.5" />
-                        {seed}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 4-Stage Familiarity Ratio */}
-              <div
-                className={`border-t border-hairline pt-2.5 ${
-                  useTasteDna ? "" : "pointer-events-none opacity-45"
-                }`}
-              >
-                <div className="mb-1.5 flex items-baseline justify-between">
-                  <span className="text-[11px] font-semibold text-ink">
-                    아는 곡 포함 비중
-                  </span>
-                  <span className="text-[11px] font-semibold tabular-nums text-cobalt-ink">
-                    {activeFamiliarity?.title} ({activeFamiliarity?.ratio})
-                  </span>
-                </div>
-                <div className="grid grid-cols-5 gap-1">
-                  {FAMILIARITY_STEPS.map((step) => {
-                    const active = familiarityLevel === step.level;
-                    return (
-                      <button
-                        key={step.level}
-                        type="button"
-                        disabled={!useTasteDna}
-                        onClick={() => onChangeFamiliarity(step.level)}
-                        className={`flex flex-col items-center rounded border py-1.5 text-center transition ${
-                          active
-                            ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
-                            : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
-                        }`}
-                      >
-                        <span className="text-[11px] font-bold tabular-nums">
-                          {step.ratio}
-                        </span>
-                        <span className="text-[10px] leading-tight">
-                          {step.title}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {activeFamiliarity && (
-                  <p className="mt-1.5 text-[11px] text-muted">
-                    {activeFamiliarity.desc}
-                  </p>
-                )}
-              </div>
             </div>
           )}
         </div>

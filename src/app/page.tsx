@@ -10,6 +10,7 @@ import {
   Sun,
   Moon,
   History,
+  X,
 } from "lucide-react";
 import { PlaylistBuilder } from "@/components/PlaylistBuilder";
 import { PlaylistWorkspace } from "@/components/PlaylistWorkspace";
@@ -215,6 +216,18 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customPresets: next }),
       });
+    } catch {
+      // Ignore background sync errors
+    }
+  };
+
+  const handleDeleteHistoryEntry = async (entryId: string) => {
+    setPlaylistHistory((prev) => prev.filter((entry) => entry.id !== entryId));
+    try {
+      await fetch(
+        `/api/user/state?target=historyEntry&id=${encodeURIComponent(entryId)}`,
+        { method: "DELETE" }
+      );
     } catch {
       // Ignore background sync errors
     }
@@ -487,22 +500,46 @@ export default function HomePage() {
                   최근 생성 셋리
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {playlistHistory.slice(0, 5).map((entry) => {
+                  {playlistHistory.slice(0, 6).map((entry) => {
                     const active = playlist?.title === entry.title;
                     return (
-                      <button
+                      <div
                         key={entry.id}
-                        type="button"
-                        onClick={() => updatePlaylist(entry.playlist)}
-                        className={`max-w-[190px] truncate rounded border px-2 py-1 text-[11px] font-medium transition ${
+                        className={`inline-flex items-center overflow-hidden rounded border text-[11px] transition ${
                           active
                             ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
                             : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
                         }`}
-                        title={`${entry.title} (${entry.trackCount}곡)`}
                       >
-                        {entry.title}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => updatePlaylist(entry.playlist)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 font-medium"
+                          title={`${entry.title} (${entry.trackCount}곡 · ${new Date(entry.createdAt).toLocaleDateString("ko-KR")})`}
+                        >
+                          <span className="max-w-[140px] truncate">
+                            {entry.title}
+                          </span>
+                          <span
+                            className={`rounded px-1 py-0.5 text-[9px] font-semibold tabular-nums ${
+                              active
+                                ? "bg-cobalt/15 text-cobalt-ink"
+                                : "bg-sheet text-muted"
+                            }`}
+                          >
+                            {entry.trackCount}곡
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteHistoryEntry(entry.id)}
+                          className="border-l border-hairline/70 px-1.5 py-1 text-muted hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+                          aria-label={`${entry.title} 이력 삭제`}
+                          title="이력 삭제"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
