@@ -34,6 +34,86 @@ const GeminiPlaylistSchema = z.object({
   tracks: z.array(TrackSchema).min(1),
 });
 
+const TRACK_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    title: {
+      type: "string",
+      description:
+        "Official song title in original script (Japanese kanji/kana or English as officially released).",
+    },
+    titleRomaji: {
+      type: "string",
+      description:
+        "Romanized or English song title for reliable Spotify/YouTube matching.",
+    },
+    artist: {
+      type: "string",
+      description:
+        "Official artist or band/seiyuu unit name in original script.",
+    },
+    artistRomaji: {
+      type: "string",
+      description: "Romanized artist name.",
+    },
+    animeTitle: {
+      type: "string",
+      description: "Anime title in Korean (as commonly known in Korea).",
+    },
+    animeTitleJapanese: {
+      type: "string",
+      description: "Official Japanese anime title.",
+    },
+    animeTitleRomaji: {
+      type: "string",
+      description: "Official Romaji/English anime title used on AniList.",
+    },
+    themeType: {
+      type: "string",
+      enum: ["OP", "ED", "OST", "INSERT", "CHARACTER"],
+    },
+    themeLabel: {
+      type: "string",
+      description:
+        "Specific role like OP1, OP2, ED1, 삽입곡, 최종화 ED, 극중가, OST.",
+    },
+    year: {
+      type: ["integer", "null"],
+      description: "Release or anime broadcast year.",
+    },
+    bpmVibe: {
+      type: "string",
+      description:
+        "Concise tempo & sonic vibe tag, e.g. '190 BPM · 질주 기타록' or '84 BPM · 몽환 피아노'.",
+    },
+    reason: {
+      type: "string",
+      description:
+        "1-2 sentences in Korean explaining why this track fits the user's seeds, moods, and flow.",
+    },
+    setlistSection: {
+      type: "string",
+      description:
+        "Short Korean setlist arc label such as '오프닝', '빌드업', '피크', '감정 전환', or '앵콜'.",
+    },
+  },
+  required: [
+    "title",
+    "titleRomaji",
+    "artist",
+    "artistRomaji",
+    "animeTitle",
+    "animeTitleJapanese",
+    "animeTitleRomaji",
+    "themeType",
+    "themeLabel",
+    "year",
+    "bpmVibe",
+    "reason",
+    "setlistSection",
+  ],
+};
+
 const PLAYLIST_JSON_SCHEMA = {
   type: "object",
   properties: {
@@ -54,85 +134,7 @@ const PLAYLIST_JSON_SCHEMA = {
     },
     tracks: {
       type: "array",
-      items: {
-        type: "object",
-        properties: {
-          title: {
-            type: "string",
-            description:
-              "Official song title in original script (Japanese kanji/kana or English as officially released).",
-          },
-          titleRomaji: {
-            type: "string",
-            description:
-              "Romanized or English song title for reliable Spotify/YouTube matching.",
-          },
-          artist: {
-            type: "string",
-            description:
-              "Official artist or band/seiyuu unit name in original script.",
-          },
-          artistRomaji: {
-            type: "string",
-            description: "Romanized artist name.",
-          },
-          animeTitle: {
-            type: "string",
-            description: "Anime title in Korean (as commonly known in Korea).",
-          },
-          animeTitleJapanese: {
-            type: "string",
-            description: "Official Japanese anime title.",
-          },
-          animeTitleRomaji: {
-            type: "string",
-            description: "Official Romaji/English anime title used on AniList.",
-          },
-          themeType: {
-            type: "string",
-            enum: ["OP", "ED", "OST", "INSERT", "CHARACTER"],
-          },
-          themeLabel: {
-            type: "string",
-            description:
-              "Specific role like OP1, OP2, ED1, 삽입곡, 최종화 ED, 극중가, OST.",
-          },
-          year: {
-            type: ["integer", "null"],
-            description: "Release or anime broadcast year.",
-          },
-          bpmVibe: {
-            type: "string",
-            description:
-              "Concise tempo & sonic vibe tag, e.g. '190 BPM · 질주 기타록' or '84 BPM · 몽환 피아노'.",
-          },
-          reason: {
-            type: "string",
-            description:
-              "1-2 sentences in Korean explaining why this track fits the user's seeds, moods, and flow.",
-          },
-          setlistSection: {
-            type: "string",
-            description:
-              "Short Korean setlist arc label such as '오프닝', '빌드업', '피크', '감정 전환', or '앵콜'.",
-          },
-        },
-        required: [
-          "title",
-          "titleRomaji",
-          "artist",
-          "artistRomaji",
-          "animeTitle",
-          "animeTitleJapanese",
-          "animeTitleRomaji",
-          "themeType",
-          "themeLabel",
-          "year",
-          "bpmVibe",
-          "reason",
-          "setlistSection",
-        ],
-      },
+      items: TRACK_JSON_SCHEMA,
     },
   },
   required: ["title", "description", "curatorSummary", "tracks"],
@@ -155,14 +157,14 @@ function makePlatformSearchUrls(track: {
   };
 }
 
-function normalizeForCompare(str: string): string {
+export function normalizeForCompare(str: string): string {
   return str
     .toLowerCase()
     .replace(/【[^】]*】|\[[^\]]*\]|\([^)]*\)/g, " ")
     .replace(/[\s\-_'"`~!@#$%^&*+=[\]{};:,.<>?/\\|！？・〜～『』「」]/g, "");
 }
 
-function isTrackInKnownLibrary(
+export function isTrackInKnownLibrary(
   track: { title: string; titleRomaji: string; artist: string },
   knownTracks: KnownTrackItem[]
 ): boolean {
@@ -183,7 +185,7 @@ function isTrackInKnownLibrary(
   return false;
 }
 
-function isTrackExcluded(
+export function isTrackExcluded(
   track: {
     title: string;
     titleRomaji?: string;
@@ -281,10 +283,11 @@ function describePopularity(level: PopularityLevel): string {
   }
 }
 
-function hydrateTracks(
+export function hydrateTracks(
   rawTracks: z.infer<typeof TrackSchema>[],
   knownTracks: KnownTrackItem[] = [],
-  userKnownKeys: Set<string> = new Set()
+  userKnownKeys: Set<string> = new Set(),
+  idSeedOffset = 0
 ): PlaylistTrack[] {
   const seen = new Set<string>();
   const result: PlaylistTrack[] = [];
@@ -302,7 +305,7 @@ function hydrateTracks(
 
     const urls = makePlatformSearchUrls(item);
     result.push({
-      id: `trk-${result.length + 1}-${Buffer.from(dedupeKey)
+      id: `trk-${idSeedOffset + result.length + 1}-${Buffer.from(dedupeKey)
         .toString("hex")
         .slice(0, 8)}`,
       ...item,
@@ -335,7 +338,7 @@ function describeEra(era: PlaylistGenerateRequest["era"]): string {
   }
 }
 
-function mergeKnownTrackLists(
+export function mergeKnownTrackLists(
   primary: KnownTrackItem[],
   extra: KnownTrackItem[]
 ): KnownTrackItem[] {
@@ -1094,4 +1097,214 @@ export function generateFallbackPlaylist(
     mode: "demo-fallback",
     tracks: hydrateTracks(scored, knownTracks, userKnownKeys),
   };
+}
+
+function toExcludedTrackRefs(tracks: PlaylistTrack[]): ExcludedTrackRef[] {
+  return tracks.map((t) => ({
+    title: t.title,
+    titleRomaji: t.titleRomaji,
+    artist: t.artist,
+    artistRomaji: t.artistRomaji,
+    animeTitle: t.animeTitle,
+  }));
+}
+
+export async function rerollSingleTrackWithGemini(params: {
+  currentPlaylist: GeneratedPlaylist;
+  targetTrack: PlaylistTrack;
+  hint?: string;
+  knownTracks?: KnownTrackItem[];
+  userKnownKeys?: Set<string>;
+}): Promise<PlaylistTrack> {
+  const {
+    currentPlaylist,
+    targetTrack,
+    hint,
+    knownTracks = [],
+    userKnownKeys = new Set<string>(),
+  } = params;
+
+  const existingRefs = toExcludedTrackRefs(currentPlaylist.tracks);
+  const idOffset = Date.now() % 100000;
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    const candidates = FALLBACK_CATALOG.filter(
+      (item) => !isTrackExcluded(item, existingRefs)
+    );
+    const pool = candidates.length > 0 ? candidates : FALLBACK_CATALOG;
+    const sameType = pool.filter((c) => c.themeType === targetTrack.themeType);
+    const chosenPool = sameType.length > 0 ? sameType : pool;
+    const picked = chosenPool[Math.floor(Math.random() * chosenPool.length)];
+    const { tags: _tags, ...rawTrack } = picked;
+    void _tags;
+    const [hydrated] = hydrateTracks(
+      [
+        {
+          ...rawTrack,
+          setlistSection: targetTrack.setlistSection ?? rawTrack.setlistSection,
+        },
+      ],
+      knownTracks,
+      userKnownKeys,
+      idOffset
+    );
+    return hydrated;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const trackListSummary = currentPlaylist.tracks
+    .map(
+      (t, i) =>
+        `${i + 1}. ${t.title} - ${t.artist} [${t.animeTitle} · ${t.themeLabel}]`
+    )
+    .join("\n");
+
+  const userPrompt = `현재 플레이리스트의 특정 트랙 1곡을 다른 어울리는 애니송으로 교체하려고 합니다.
+
+[현재 플레이리스트]
+- 제목: ${currentPlaylist.title}
+- 요약: ${currentPlaylist.curatorSummary}
+- 전체 곡 목록 (아래 곡들은 절대 중복 선곡 금지):
+${trackListSummary}
+
+[교체할 대상 트랙]
+- 곡명: ${targetTrack.title} (${targetTrack.titleRomaji}) - ${targetTrack.artist}
+- 작품: ${targetTrack.animeTitle} (${targetTrack.themeLabel})
+- 섹션/분위기: ${targetTrack.setlistSection ?? "중간 흐름"} / ${targetTrack.bpmVibe}
+- 교체 요청 메모: ${hint?.trim() ? hint.trim() : "기존 셋리 분위기와 섹션 흐름에 자연스럽게 어울리지만 신선한 다른 애니송으로 교체"}
+
+반드시 실제로 존재하는 애니메이션 공식 타이업 곡 1곡만 반환하세요.`;
+
+  const interaction = await ai.interactions.create({
+    model: "gemini-3.8-flash",
+    store: false,
+    system_instruction:
+      "당신은 일본 애니메이션 음악 전문 큐레이터 'AniTune'입니다. 기존 플레이리스트 목록과 중복되지 않으며 해당 섹션과 분위기에 딱 맞는 실존 애니송 1곡을 JSON 스키마로 정확히 제안하세요.",
+    input: userPrompt,
+    response_format: {
+      type: "text",
+      mime_type: "application/json",
+      schema: TRACK_JSON_SCHEMA,
+    },
+  });
+
+  const text = interaction.output_text;
+  if (!text) {
+    throw new Error("Gemini API로부터 교체 트랙 응답을 받지 못했습니다.");
+  }
+
+  const parsed = TrackSchema.parse(JSON.parse(text));
+  const [hydrated] = hydrateTracks(
+    [
+      {
+        ...parsed,
+        setlistSection: parsed.setlistSection ?? targetTrack.setlistSection,
+      },
+    ],
+    knownTracks,
+    userKnownKeys,
+    idOffset
+  );
+  return hydrated;
+}
+
+const EXTEND_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    tracks: {
+      type: "array",
+      items: TRACK_JSON_SCHEMA,
+    },
+  },
+  required: ["tracks"],
+};
+
+const ExtendResponseSchema = z.object({
+  tracks: z.array(TrackSchema).min(1),
+});
+
+export async function extendPlaylistWithGemini(params: {
+  currentPlaylist: GeneratedPlaylist;
+  addCount: number;
+  instruction?: string;
+  knownTracks?: KnownTrackItem[];
+  userKnownKeys?: Set<string>;
+}): Promise<PlaylistTrack[]> {
+  const {
+    currentPlaylist,
+    addCount,
+    instruction,
+    knownTracks = [],
+    userKnownKeys = new Set<string>(),
+  } = params;
+
+  const existingRefs = toExcludedTrackRefs(currentPlaylist.tracks);
+  const idOffset = Date.now() % 100000;
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    const candidates = FALLBACK_CATALOG.filter(
+      (item) => !isTrackExcluded(item, existingRefs)
+    );
+    const picked = candidates.slice(0, addCount).map((item) => {
+      const { tags: _tags, ...raw } = item;
+      void _tags;
+      return {
+        ...raw,
+        setlistSection: raw.setlistSection ?? "앵콜 확장",
+      };
+    });
+    return hydrateTracks(picked, knownTracks, userKnownKeys, idOffset);
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const existingSummary = currentPlaylist.tracks
+    .map(
+      (t, i) =>
+        `${i + 1}. ${t.title} - ${t.artist} [${t.animeTitle} · ${t.themeLabel} · ${t.bpmVibe}]`
+    )
+    .join("\n");
+
+  const requestCount = Math.min(12, addCount + 2);
+  const userPrompt = `기존 애니송 플레이리스트의 뒷부분을 자연스럽게 이어가는 추가 트랙 ${requestCount}곡(중복 제외 후 ${addCount}곡 선별)을 추천해 주세요.
+
+[기존 플레이리스트 정보]
+- 제목: ${currentPlaylist.title}
+- 설명: ${currentPlaylist.description}
+- 큐레이션 요약: ${currentPlaylist.curatorSummary}
+- 기존 트랙 목록 (절대 중복 선곡 금지):
+${existingSummary}
+
+- 추가 지시사항: ${instruction?.trim() ? instruction.trim() : "기존 셋리의 사운드 결, 에너지, 감정선을 자연스럽게 이어가면서 신선한 작품/곡으로 후반부와 앵콜을 확장해 주세요."}
+
+반드시 실제로 존재하는 애니메이션 공식 타이업 곡만 반환하세요.`;
+
+  const interaction = await ai.interactions.create({
+    model: "gemini-3.8-flash",
+    store: false,
+    system_instruction:
+      "당신은 일본 애니메이션 음악 전문 큐레이터 'AniTune'입니다. 기존 트랙 목록과 절대 중복되지 않으면서 셋리의 뒷 흐름을 매끄럽게 잇는 실존 애니송만 선별하세요.",
+    input: userPrompt,
+    response_format: {
+      type: "text",
+      mime_type: "application/json",
+      schema: EXTEND_JSON_SCHEMA,
+    },
+  });
+
+  const text = interaction.output_text;
+  if (!text) {
+    throw new Error("Gemini API로부터 추가 트랙 응답을 받지 못했습니다.");
+  }
+
+  const parsed = ExtendResponseSchema.parse(JSON.parse(text));
+  const hydrated = hydrateTracks(
+    parsed.tracks,
+    knownTracks,
+    userKnownKeys,
+    idOffset
+  );
+  const nonDuplicate = hydrated.filter((t) => !isTrackExcluded(t, existingRefs));
+  return (nonDuplicate.length > 0 ? nonDuplicate : hydrated).slice(0, addCount);
 }

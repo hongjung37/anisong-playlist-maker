@@ -5,15 +5,20 @@ import { useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  BookmarkCheck,
+  BookmarkPlus,
   Check,
   CheckCircle2,
   Copy,
   Disc3,
   Download,
   ExternalLink,
+  GripVertical,
   ListMusic,
   Loader2,
   Play,
+  Plus,
+  RefreshCw,
   Trash2,
   AlertTriangle,
   XCircle,
@@ -61,6 +66,7 @@ interface PlaylistWorkspaceProps {
   generationProgress?: GenerationProgressState | null;
   authStatus: AuthStatus | null;
   onUpdatePlaylist: (updated: GeneratedPlaylist) => void;
+  onKnownTracksChanged?: () => void;
   onOpenSetup: () => void;
 }
 
@@ -70,6 +76,7 @@ export function PlaylistWorkspace({
   generationProgress = null,
   authStatus,
   onUpdatePlaylist,
+  onKnownTracksChanged,
   onOpenSetup,
 }: PlaylistWorkspaceProps) {
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
@@ -88,6 +95,16 @@ export function PlaylistWorkspace({
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportResult, setExportResult] =
     useState<PlaylistExportResponse | null>(null);
+
+  const [rerollingTrackId, setRerollingTrackId] = useState<string | null>(null);
+  const [togglingKnownTrackId, setTogglingKnownTrackId] = useState<
+    string | null
+  >(null);
+  const [extending, setExtending] = useState(false);
+  const [extendInstruction, setExtendInstruction] = useState("");
+  const [trackActionError, setTrackActionError] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   if (loading) {
     const activeStage = generationProgress?.stage ?? "preparing";
@@ -217,6 +234,137 @@ export function PlaylistWorkspace({
     const next = [...playlist.tracks];
     [next[index], next[target]] = [next[target], next[index]];
     onUpdatePlaylist({ ...playlist, tracks: next });
+  };
+
+  const reorderTracks = (fromIdx: number, toIdx: number) => {
+    if (
+      fromIdx === toIdx ||
+      fromIdx < 0 ||
+      toIdx < 0 ||
+      fromIdx >= playlist.tracks.length ||
+      toIdx >= playlist.tracks.length
+    ) {
+      return;
+    }
+    const next = [...playlist.tracks];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    onUpdatePlaylist({ ...playlist, tracks: next });
+  };
+
+  const handleRerollTrack = async (track: PlaylistTrack) => {
+    setRerollingTrackId(track.id);
+    setTrackActionError(null);
+    try {
+      const res = await fetch("/api/playlist/reroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playlist,
+          trackId: track.id,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        track?: PlaylistTrack;
+        error?: string;
+      };
+      if (!res.ok || !data.track) {
+        throw new Error(data.error || "트랙 교체에 실패했습니다.");
+      }
+
+      const replacement = data.track;
+      const nextTracks = playlist.tracks.map((t) =>
+        t.id === track.id ? replacement : t
+      );
+      onUpdatePlaylist({ ...playlist, tracks: nextTracks });
+      if (effectiveActiveTrackId === track.id) {
+        setActiveTrackId(replacement.id);
+      }
+    } catch (err) {
+      setTrackActionError(
+        err instanceof Error ? err.message : "트랙 교체 중 오류가 발생했습니다."
+      );
+    } finally {
+      setRerollingTrackId(null);
+      window.dispatchEvent(new Event("anitune:quota-updated"));
+    }
+  };
+
+  const handleToggleKnown = async (track: PlaylistTrack) => {
+    const nextKnown = !track.inUserLibrary;
+    setTogglingKnownTrackId(track.id);
+    setTrackActionError(null);
+    try {
+      const res = await fetch("/api/user/known-track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          track: {
+            title: track.title,
+            titleRomaji: track.titleRomaji,
+            artist: track.artist,
+            artistRomaji: track.artistRomaji,
+            animeTitle: track.animeTitle,
+            youtubeVideoId: track.youtubeVideoId,
+          },
+          known: nextKnown,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || "아는 곡 저장에 실패했습니다.");
+      }
+
+      onUpdatePlaylist({
+        ...playlist,
+        tracks: playlist.tracks.map((t) =>
+          t.id === track.id ? { ...t, inUserLibrary: nextKnown } : t
+        ),
+      });
+      onKnownTracksChanged?.();
+    } catch (err) {
+      setTrackActionError(
+        err instanceof Error ? err.message : "아는 곡 등록 중 오류가 발생했습니다."
+      );
+    } finally {
+      setTogglingKnownTrackId(null);
+    }
+  };
+
+  const handleExtendPlaylist = async () => {
+    setExtending(true);
+    setTrackActionError(null);
+    try {
+      const res = await fetch("/api/playlist/extend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playlist,
+          addCount: 5,
+          instruction: extendInstruction.trim() || undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        tracks?: PlaylistTrack[];
+        error?: string;
+      };
+      if (!res.ok || !Array.isArray(data.tracks)) {
+        throw new Error(data.error || "곡 추가에 실패했습니다.");
+      }
+
+      onUpdatePlaylist({
+        ...playlist,
+        tracks: [...playlist.tracks, ...data.tracks],
+      });
+      setExtendInstruction("");
+    } catch (err) {
+      setTrackActionError(
+        err instanceof Error ? err.message : "셋리 확장 중 오류가 발생했습니다."
+      );
+    } finally {
+      setExtending(false);
+      window.dispatchEvent(new Event("anitune:quota-updated"));
+    }
   };
 
   const removeTrack = (trackId: string) => {
@@ -662,7 +810,7 @@ export function PlaylistWorkspace({
           <div className="flex items-center gap-2 text-[11px] font-semibold text-muted">
             <ListMusic className="h-3.5 w-3.5 text-cobalt" />
             <span>트랙 리스트</span>
-            <span className="font-normal">· 순서 조정 및 바로 듣기</span>
+            <span className="font-normal">· 드래그/버튼 순서 조정 · 곡 교체 및 아는 곡 등록</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -684,183 +832,317 @@ export function PlaylistWorkspace({
           </div>
         </div>
 
+        {trackActionError && (
+          <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-5 py-2 text-xs text-red-800 dark:text-red-200">
+            <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
+            <span>{trackActionError}</span>
+          </div>
+        )}
+
         <ol className="divide-y divide-hairline">
           {playlist.tracks.map((track, idx) => {
             const isCurrent = effectiveActiveTrackId === track.id;
             const playableOnWeb = Boolean(
               track.youtubeVideoId || canResolveYouTube
             );
-            return (
-            <li
-              key={track.id}
-              className={`group flex flex-col gap-3 px-4 py-4 transition sm:flex-row sm:items-start sm:px-5 ${
-                isCurrent
-                  ? "border-l-2 border-l-cobalt bg-cobalt-soft/45"
-                  : "hover:bg-sheet-muted"
-              }`}
-            >
-              {/* Index & Cover */}
-              <div className="flex items-center gap-3">
-                <span
-                  className={`w-6 text-right text-xs font-semibold tabular-nums ${
-                    isCurrent ? "text-cobalt-ink" : "text-muted"
-                  }`}
-                >
-                  {String(idx + 1).padStart(2, "0")}
-                </span>
+            const prevSection =
+              idx > 0 ? playlist.tracks[idx - 1]?.setlistSection : null;
+            const showSectionHeader =
+              Boolean(track.setlistSection) &&
+              track.setlistSection !== prevSection;
+            const isRerolling = rerollingTrackId === track.id;
+            const isTogglingKnown = togglingKnownTrackId === track.id;
+            const isDragTarget =
+              dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
 
-                {track.coverImage ? (
-                  <Image
-                    src={track.coverImage}
-                    alt={track.animeTitle}
-                    width={46}
-                    height={62}
-                    unoptimized
-                    className="h-[62px] w-[46px] shrink-0 rounded-sm border border-hairline object-cover"
-                  />
-                ) : (
-                  <div className="flex h-[62px] w-[46px] shrink-0 items-center justify-center rounded-sm border border-hairline bg-sheet-muted text-muted">
-                    <Disc3 className="h-5 w-5" />
+            return (
+              <li
+                key={track.id}
+                draggable
+                onDragStart={(e) => {
+                  setDragIndex(idx);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", String(idx));
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragOverIndex !== idx) {
+                    setDragOverIndex(idx);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragIndex !== null) {
+                    reorderTracks(dragIndex, idx);
+                  }
+                  setDragIndex(null);
+                  setDragOverIndex(null);
+                }}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setDragOverIndex(null);
+                }}
+                className={`group transition ${
+                  isCurrent
+                    ? "border-l-2 border-l-cobalt bg-cobalt-soft/45"
+                    : "hover:bg-sheet-muted"
+                } ${isDragTarget ? "border-t-2 border-t-cobalt bg-cobalt-soft/20" : ""} ${
+                  dragIndex === idx ? "opacity-55" : ""
+                }`}
+              >
+                {showSectionHeader && (
+                  <div className="flex items-center gap-2 border-b border-hairline/70 bg-sheet-muted/70 px-4 py-1.5 text-[10px] font-bold tracking-wide text-cobalt-ink sm:px-5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-cobalt" />
+                    <span>{track.setlistSection}</span>
                   </div>
                 )}
 
-                <div className="min-w-0 flex-1 sm:hidden">
-                  <div className="truncate text-sm font-bold text-ink">
-                    {track.title}
-                  </div>
-                  <div className="truncate text-xs text-muted">
-                    {track.artist}
-                  </div>
-                </div>
-              </div>
-
-              {/* Track Body */}
-              <div className="min-w-0 flex-1">
-                <div className="hidden sm:flex sm:flex-wrap sm:items-baseline sm:gap-2">
-                  <h3 className="text-sm font-bold text-ink">{track.title}</h3>
-                  {track.titleRomaji && track.titleRomaji !== track.title && (
-                    <span className="text-xs text-muted">
-                      {track.titleRomaji}
-                    </span>
-                  )}
-                  {isCurrent && (
-                    <span className="rounded bg-cobalt px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      {isPlaying ? "재생 중" : "선택됨"}
-                    </span>
-                  )}
-                </div>
-
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="hidden font-medium text-ink-soft sm:inline">
-                    {track.artist}
-                  </span>
-                  <span className="font-semibold text-cobalt-ink">
-                    {track.animeTitle}
-                  </span>
-                  <span
-                    className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${THEME_BADGE_STYLES[track.themeType]}`}
-                  >
-                    {track.themeLabel}
-                  </span>
-                  {track.setlistSection && (
-                    <span className="rounded border border-hairline bg-sheet-muted px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
-                      {track.setlistSection}
-                    </span>
-                  )}
-                  {track.inUserLibrary !== undefined && (
+                <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-5">
+                  {/* Drag Handle, Index & Cover */}
+                  <div className="flex items-center gap-2.5">
                     <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                        track.inUserLibrary
-                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                          : "bg-cobalt-soft text-cobalt-ink"
+                      className="hidden cursor-grab text-muted/60 hover:text-ink active:cursor-grabbing sm:inline-flex"
+                      title="드래그해서 순서 이동"
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </span>
+                    <span
+                      className={`w-6 text-right text-xs font-semibold tabular-nums ${
+                        isCurrent ? "text-cobalt-ink" : "text-muted"
                       }`}
                     >
-                      {track.inUserLibrary ? "내 라이브러리" : "신규 추천"}
+                      {String(idx + 1).padStart(2, "0")}
                     </span>
-                  )}
-                  {track.year && (
-                    <span className="text-[11px] tabular-nums text-muted">
-                      {track.year}
-                    </span>
-                  )}
-                  <span className="text-[11px] text-muted">
-                    {track.bpmVibe}
-                  </span>
-                </div>
 
-                <p className="mt-1.5 max-w-[74ch] text-xs leading-relaxed text-ink-soft">
-                  {track.reason}
-                </p>
-              </div>
+                    {track.coverImage ? (
+                      <Image
+                        src={track.coverImage}
+                        alt={track.animeTitle}
+                        width={46}
+                        height={62}
+                        unoptimized
+                        className="h-[62px] w-[46px] shrink-0 rounded-sm border border-hairline object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-[62px] w-[46px] shrink-0 items-center justify-center rounded-sm border border-hairline bg-sheet-muted text-muted">
+                        <Disc3 className="h-5 w-5" />
+                      </div>
+                    )}
 
-              {/* Row Actions */}
-              <div className="flex flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
-                <div className="flex items-center gap-1.5">
-                  {playableOnWeb && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTrackId(track.id)}
-                      className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition ${
-                        isCurrent
-                          ? "bg-cobalt text-white"
-                          : "bg-ink text-sheet hover:bg-cobalt hover:text-white"
-                      }`}
-                    >
-                      <Play className="h-3 w-3 fill-current" />{" "}
-                      {isCurrent && isPlaying ? "재생 중" : "재생"}
-                    </button>
-                  )}
-                  <a
-                    href={track.youtubeMusicUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-obi/50 hover:text-obi-ink"
-                  >
-                    YT Music <ExternalLink className="h-2.5 w-2.5" />
-                  </a>
-                  <a
-                    href={track.spotifyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
-                  >
-                    Spotify <ExternalLink className="h-2.5 w-2.5" />
-                  </a>
-                </div>
+                    <div className="min-w-0 flex-1 sm:hidden">
+                      <div className="truncate text-sm font-bold text-ink">
+                        {track.title}
+                      </div>
+                      <div className="truncate text-xs text-muted">
+                        {track.artist}
+                      </div>
+                    </div>
+                  </div>
 
-                <div className="flex items-center gap-0.5 text-muted sm:opacity-75 sm:group-hover:opacity-100">
-                  <button
-                    type="button"
-                    onClick={() => moveTrack(idx, -1)}
-                    disabled={idx === 0}
-                    className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
-                    title="위로 이동"
-                  >
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveTrack(idx, 1)}
-                    disabled={idx === playlist.tracks.length - 1}
-                    className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
-                    title="아래로 이동"
-                  >
-                    <ArrowDown className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => removeTrack(track.id)}
-                    className="rounded p-1 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
-                    title="트랙 삭제"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {/* Track Body */}
+                  <div className="min-w-0 flex-1">
+                    <div className="hidden sm:flex sm:flex-wrap sm:items-baseline sm:gap-2">
+                      <h3 className="text-sm font-bold text-ink">
+                        {track.title}
+                      </h3>
+                      {track.titleRomaji &&
+                        track.titleRomaji !== track.title && (
+                          <span className="text-xs text-muted">
+                            {track.titleRomaji}
+                          </span>
+                        )}
+                      {isCurrent && (
+                        <span className="rounded bg-cobalt px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {isPlaying ? "재생 중" : "선택됨"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="hidden font-medium text-ink-soft sm:inline">
+                        {track.artist}
+                      </span>
+                      <span className="font-semibold text-cobalt-ink">
+                        {track.animeTitle}
+                      </span>
+                      <span
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${THEME_BADGE_STYLES[track.themeType]}`}
+                      >
+                        {track.themeLabel}
+                      </span>
+                      {track.setlistSection && (
+                        <span className="rounded border border-hairline bg-sheet-muted px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+                          {track.setlistSection}
+                        </span>
+                      )}
+                      {track.inUserLibrary !== undefined && (
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            track.inUserLibrary
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                              : "bg-cobalt-soft text-cobalt-ink"
+                          }`}
+                        >
+                          {track.inUserLibrary ? "내 라이브러리" : "신규 추천"}
+                        </span>
+                      )}
+                      {track.year && (
+                        <span className="text-[11px] tabular-nums text-muted">
+                          {track.year}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted">
+                        {track.bpmVibe}
+                      </span>
+                    </div>
+
+                    <p className="mt-1.5 max-w-[74ch] text-xs leading-relaxed text-ink-soft">
+                      {track.reason}
+                    </p>
+                  </div>
+
+                  {/* Row Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {playableOnWeb && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTrackId(track.id)}
+                          className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition ${
+                            isCurrent
+                              ? "bg-cobalt text-white"
+                              : "bg-ink text-sheet hover:bg-cobalt hover:text-white"
+                          }`}
+                        >
+                          <Play className="h-3 w-3 fill-current" />{" "}
+                          {isCurrent && isPlaying ? "재생 중" : "재생"}
+                        </button>
+                      )}
+                      <a
+                        href={track.youtubeMusicUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-obi/50 hover:text-obi-ink"
+                      >
+                        YT Music <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                      <a
+                        href={track.spotifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400"
+                      >
+                        Spotify <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1 text-muted sm:opacity-85 sm:group-hover:opacity-100">
+                      <button
+                        type="button"
+                        disabled={isTogglingKnown}
+                        onClick={() => void handleToggleKnown(track)}
+                        className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold transition ${
+                          track.inUserLibrary
+                            ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                            : "border-hairline bg-sheet text-ink-soft hover:border-hairline-strong hover:text-ink"
+                        } disabled:opacity-50`}
+                        title="내 아는 곡 목록에 추가/해제"
+                      >
+                        {isTogglingKnown ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : track.inUserLibrary ? (
+                          <BookmarkCheck className="h-3 w-3" />
+                        ) : (
+                          <BookmarkPlus className="h-3 w-3" />
+                        )}
+                        {track.inUserLibrary ? "아는 곡 ✓" : "아는 곡"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isRerolling || extending}
+                        onClick={() => void handleRerollTrack(track)}
+                        className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2 py-0.5 text-[10px] font-semibold text-ink-soft transition hover:border-cobalt/40 hover:text-cobalt-ink disabled:opacity-50"
+                        title="이 곡만 다른 곡으로 교체"
+                      >
+                        {isRerolling ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                        교체
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => moveTrack(idx, -1)}
+                        disabled={idx === 0}
+                        className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                        title="위로 이동"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveTrack(idx, 1)}
+                        disabled={idx === playlist.tracks.length - 1}
+                        className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                        title="아래로 이동"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeTrack(track.id)}
+                        className="rounded p-1 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+                        title="트랙 삭제"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </li>
+              </li>
             );
           })}
         </ol>
+
+        {/* Extend Playlist Footer Bar */}
+        <div className="flex flex-col gap-2 border-t border-hairline bg-sheet-muted px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <input
+            type="text"
+            value={extendInstruction}
+            onChange={(e) => setExtendInstruction(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (!extending && playlist.tracks.length > 0) {
+                  void handleExtendPlaylist();
+                }
+              }
+            }}
+            placeholder="추가 요청 메모 (선택: 예. 후반부는 좀 더 빠른 템포로 이어줘)"
+            className="min-w-0 flex-1 rounded border border-hairline-strong bg-sheet px-3 py-1.5 text-xs text-ink placeholder:text-muted/70 focus:border-cobalt focus:outline-none"
+          />
+          <button
+            type="button"
+            disabled={extending || playlist.tracks.length === 0}
+            onClick={() => void handleExtendPlaylist()}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded bg-ink px-3.5 py-1.5 text-xs font-semibold text-sheet transition hover:opacity-90 disabled:opacity-50"
+          >
+            {extending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                5곡 추가 중...
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" />
+                비슷한 결로 5곡 더 추가
+              </>
+            )}
+          </button>
+        </div>
       </section>
     </div>
   );
