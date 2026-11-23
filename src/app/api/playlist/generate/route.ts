@@ -10,6 +10,7 @@ import {
 } from "@/lib/profile-store";
 import { enrichTracksWithYouTube } from "@/lib/youtube";
 import { getUserKnownTrackKeys } from "@/lib/youtube-cache";
+import { readWatchedAnime } from "@/lib/watched-anime-store";
 import type {
   ExcludedTrackRef,
   GeneratedPlaylist,
@@ -77,6 +78,10 @@ const RequestSchema = z.object({
     .optional()
     .default(3),
   excludeRecentTurns: z.number().int().min(0).max(10).optional().default(0),
+  watchedAnimeMode: z
+    .enum(["ignore", "prefer_watched", "discover_unwatched"])
+    .optional()
+    .default("ignore"),
   tasteProfile: z
     .object({
       dna: z.object({
@@ -132,8 +137,11 @@ async function runGeneratePipeline(
   const effectivePopularity =
     input.popularityLevel ?? (input.includeHiddenGems ? 3 : 2);
 
-  const [userKnownKeys] = await Promise.all([
+  const [userKnownKeys, watchedAnime] = await Promise.all([
     getUserKnownTrackKeys(accountKey),
+    input.watchedAnimeMode !== "ignore"
+      ? readWatchedAnime()
+      : Promise.resolve([]),
   ]);
   const manualKnownTracks = stored.manualKnownTracks ?? [];
 
@@ -157,6 +165,7 @@ async function runGeneratePipeline(
       excludedRecentTracks,
       userKnownKeys,
       extraKnownTracks: manualKnownTracks,
+      watchedAnime,
     }
   );
 

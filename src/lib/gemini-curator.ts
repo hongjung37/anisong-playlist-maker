@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
+import { getRatingWeight } from "@/lib/watched-anime-store";
 import { buildTrackCacheKeys } from "@/lib/youtube-cache";
 import type {
   ExcludedTrackRef,
@@ -9,6 +10,8 @@ import type {
   PlaylistGenerateRequest,
   PlaylistTrack,
   PopularityLevel,
+  WatchedAnimeItem,
+  WatchedAnimeMode,
 } from "@/types/playlist";
 
 const TrackSchema = z.object({
@@ -356,12 +359,61 @@ export function mergeKnownTrackLists(
   return merged;
 }
 
+function buildWatchedAnimeContextBlock(
+  mode: WatchedAnimeMode | undefined,
+  watchedAnime: WatchedAnimeItem[]
+): string {
+  if (!mode || mode === "ignore" || watchedAnime.length === 0) {
+    return "";
+  }
+
+  if (mode === "prefer_watched") {
+    const positive = watchedAnime.filter(
+      (item) => getRatingWeight(item.rating) > 0
+    );
+    const list = (positive.length > 0 ? positive : watchedAnime)
+      .slice(0, 95)
+      .map((item, i) => {
+        const meta = [
+          item.rank ? `#${item.rank}` : null,
+          item.rating,
+          item.genre,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return `  ${i + 1}. ${item.title}${meta ? ` [${meta}]` : ""}`;
+      })
+      .join("\n");
+
+    return `\n[사용자 시청 완료/시청 중 작품 보관함 — 본 작품 위주 선곡]
+- 아래 목록은 사용자가 실제로 본 애니메이션입니다(평점·선호 순위 높은 작품이 상단에 정렬됨).
+- 요청된 분위기·장르·연대와 어울리는 선에서 가능한 한 아래 본 작품들의 OP/ED/삽입곡/OST 위주로 우선 선곡하고, 특히 [⭐️인생작⭐️], [명작⭐️], 순위권 작품의 비중을 높여 주세요.
+${list}\n`;
+  }
+
+  const topRef = watchedAnime
+    .filter((item) => getRatingWeight(item.rating) >= 4)
+    .slice(0, 20)
+    .map((item) => item.title)
+    .join(", ");
+
+  const allExcluded = watchedAnime
+    .slice(0, 120)
+    .map((item, i) => `  ${i + 1}. ${item.title}`)
+    .join("\n");
+
+  return `\n[사용자 본 작품 보관함 — 아직 안 본 작품 위주 발굴]
+${topRef ? `- 사용자가 특히 높게 평가한 취향 기준작(참고용): ${topRef}\n` : ""}- 아래 목록은 사용자가 이미 본 작품입니다. 이번 셋리에는 아래 작품들의 곡을 제외하고, 사용자가 아직 보지 않았을 만한 다른 애니메이션의 곡 위주로 선곡해 주세요:
+${allExcluded}\n`;
+}
+
 export async function generatePlaylistWithGemini(
   input: PlaylistGenerateRequest,
   options?: {
     excludedRecentTracks?: ExcludedTrackRef[];
     userKnownKeys?: Set<string>;
     extraKnownTracks?: KnownTrackItem[];
+    watchedAnime?: WatchedAnimeItem[];
   }
 ): Promise<GeneratedPlaylist> {
   const excludedRecentTracks = options?.excludedRecentTracks ?? [];
@@ -430,6 +482,11 @@ ${knownTracks
   .join("\n")}\n`
     : "";
 
+  const watchedContextBlock = buildWatchedAnimeContextBlock(
+    input.watchedAnimeMode,
+    options?.watchedAnime ?? []
+  );
+
   const userPrompt = `다음 조건에 맞는 애니송 셋리(플레이리스트)를 ${requestedCount}곡으로 큐레이션해 주세요.${
     requestedCount > input.trackCount
       ? ` (중복 제외 후 최종 ${input.trackCount}곡 선별용 여유분 포함)`
@@ -444,7 +501,7 @@ ${knownTracks
 - 대중성/인지도 (메이저 ↔ 마이너): ${describePopularity(popularityLevel)}
 - 추가 요청 사항: ${input.prompt?.trim() ? input.prompt.trim() : "없음"}
 - 요청 곡 수: ${requestedCount}곡
-${excludedBlock}${tasteContextBlock}`;
+${excludedBlock}${tasteContextBlock}${watchedContextBlock}`;
 
   const interaction = await ai.interactions.create({
     model: "gemini-3.8-flash",
@@ -1005,10 +1062,13 @@ export function generateFallbackPlaylist(
     excludedRecentTracks?: ExcludedTrackRef[];
     userKnownKeys?: Set<string>;
     extraKnownTracks?: KnownTrackItem[];
+    watchedAnime?: WatchedAnimeItem[];
   }
 ): GeneratedPlaylist {
   const excludedRecentTracks = options?.excludedRecentTracks ?? [];
   const userKnownKeys = options?.userKnownKeys ?? new Set<string>();
+  const watchedAnime = options?.watchedAnime ?? [];
+  const watchedMode = input.watchedAnimeMode ?? "ignore";
   const seedLower = input.seeds.map((s) => s.toLowerCase());
   const promptLower = (input.prompt ?? "").toLowerCase();
   const genres = input.genres ?? [];
@@ -1073,6 +1133,30 @@ export function generateFallbackPlaylist(
     if (familiarityLevel === 1 && inLib) score -= 120;
     if (familiarityLevel === 4 && inLib) score += 40;
     if (familiarityLevel === 5) score += inLib ? 80 : -80;
+
+    if (watchedMode !== "ignore" && watchedAnime.length > 0) {
+      const animeTokens = [
+        item.animeTitle,
+        item.animeTitleRomaji,
+        item.animeTitleJapanese,
+      ]
+        .map(normalizeForCompare)
+        .filter((t) => t.length >= 2);
+      const matchedWatched = watchedAnime.find((w) => {
+        const wNorm = normalizeForCompare(w.title);
+        if (wNorm.length < 2) return false;
+        return animeTokens.some(
+          (t) => t === wNorm || (wNorm.length >= 3 && (t.includes(wNorm) || wNorm.includes(t)))
+        );
+      });
+      if (matchedWatched) {
+        if (watchedMode === "prefer_watched" && getRatingWeight(matchedWatched.rating) > 0) {
+          score += 45 + getRatingWeight(matchedWatched.rating) * 4;
+        } else if (watchedMode === "discover_unwatched") {
+          score -= 120;
+        }
+      }
+    }
 
     return { item, score };
   })

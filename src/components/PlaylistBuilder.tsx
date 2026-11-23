@@ -25,9 +25,12 @@ import type {
   PopularityLevel,
   TasteProfile,
   ThemeType,
+  WatchedAnimeItem,
+  WatchedAnimeMode,
 } from "@/types/playlist";
 import { AniListSeedImporter } from "@/components/AniListSeedImporter";
 import { TasteProfilePanel } from "@/components/TasteProfilePanel";
+import { WatchedAnimePanel } from "@/components/WatchedAnimePanel";
 
 const MOOD_OPTIONS = [
   "질주감 / 열혈",
@@ -161,9 +164,11 @@ interface PlaylistBuilderProps {
   tasteProfile: TasteProfile | null;
   playlistHistory: PlaylistHistoryEntry[];
   customPresets?: CustomPreset[];
+  watchedAnime?: WatchedAnimeItem[];
   initialAnilistUsername?: string | null;
   onChangeTasteProfile: (profile: TasteProfile | null) => void;
   onChangeCustomPresets?: (presets: CustomPreset[]) => void;
+  onChangeWatchedAnime?: (items: WatchedAnimeItem[]) => void;
   onGenerate: (request: PlaylistGenerateRequest) => void;
 }
 
@@ -187,14 +192,18 @@ export function PlaylistBuilder({
   tasteProfile,
   playlistHistory,
   customPresets = [],
+  watchedAnime = [],
   initialAnilistUsername = null,
   onChangeTasteProfile,
   onChangeCustomPresets,
+  onChangeWatchedAnime,
   onGenerate,
 }: PlaylistBuilderProps) {
   const [familiarityLevel, setFamiliarityLevel] = useState<FamiliarityLevel>(3);
   const [useTasteDna, setUseTasteDna] = useState<boolean>(true);
   const [seeds, setSeeds] = useState<string[]>([]);
+  const [watchedAnimeMode, setWatchedAnimeMode] =
+    useState<WatchedAnimeMode>("ignore");
   const [seedInput, setSeedInput] = useState("");
   const [searchResults, setSearchResults] = useState<AnimeSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -298,6 +307,7 @@ export function PlaylistBuilder({
     setEra("ALL");
     setTrackCount(12);
     setPopularityLevel(3);
+    setWatchedAnimeMode("ignore");
     setPrompt("");
   };
 
@@ -341,6 +351,7 @@ export function PlaylistBuilder({
       popularityLevel,
       includeHiddenGems: popularityLevel >= 3,
       excludeRecentTurns: excludeRecentEnabled ? recentExcludeTurns : 0,
+      watchedAnimeMode,
       prompt,
       familiarityLevel,
       tasteProfile:
@@ -606,12 +617,65 @@ export function PlaylistBuilder({
             </div>
           )}
 
+          <WatchedAnimePanel
+            items={watchedAnime}
+            seeds={seeds}
+            onAddSeed={addSeed}
+            onRemoveSeed={removeSeed}
+            onChangeItems={(next) => onChangeWatchedAnime?.(next)}
+          />
+
           <AniListSeedImporter
             initialUsername={initialAnilistUsername}
             seeds={seeds}
             onAddSeed={addSeed}
             onRemoveSeed={removeSeed}
           />
+
+          {watchedAnime.length > 0 && (
+            <div className="mt-3 rounded-md border border-hairline bg-sheet-muted p-2.5">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-ink">
+                  본 작품 선곡 반영
+                </span>
+                <span className="text-[10px] text-muted">
+                  보관함 {watchedAnime.length}작품 기준
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { value: "ignore", label: "반영 안 함" },
+                    { value: "prefer_watched", label: "본 작품 위주" },
+                    { value: "discover_unwatched", label: "안 본 작품 발굴" },
+                  ] as const
+                ).map((opt) => {
+                  const active = watchedAnimeMode === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setWatchedAnimeMode(opt.value)}
+                      className={`rounded border py-1.5 text-[10px] font-semibold transition ${
+                        active
+                          ? "border-obi bg-obi-soft text-obi-ink"
+                          : "border-hairline bg-sheet text-muted hover:text-ink"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+                {watchedAnimeMode === "prefer_watched"
+                  ? "보관함의 인생작·명작과 본 작품들의 OP/ED/OST 비중을 높여 선곡합니다."
+                  : watchedAnimeMode === "discover_unwatched"
+                    ? "보관함에 있는 이미 본 작품은 제외하고 새로운 애니의 명곡만 발굴합니다."
+                    : "시드로 고른 항목 외에는 본 작품 보관함을 선곡 제약에 쓰지 않습니다."}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Moods */}

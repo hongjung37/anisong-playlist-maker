@@ -24,6 +24,7 @@ import type {
   PlaylistHistoryEntry,
   StoredUserData,
   TasteProfile,
+  WatchedAnimeItem,
   YouTubeQuotaStatus,
 } from "@/types/playlist";
 
@@ -41,6 +42,7 @@ export default function HomePage() {
     PlaylistHistoryEntry[]
   >([]);
   const [customPresets, setCustomPresets] = useState<CustomPreset[]>([]);
+  const [watchedAnime, setWatchedAnime] = useState<WatchedAnimeItem[]>([]);
   const [anilistUsername, setAnilistUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [generationProgress, setGenerationProgress] =
@@ -56,9 +58,10 @@ export default function HomePage() {
 
   const fetchAuthAndUserState = useCallback(async () => {
     try {
-      const [authRes, stateRes] = await Promise.all([
+      const [authRes, stateRes, watchedRes] = await Promise.all([
         fetch("/api/auth/status", { cache: "no-store" }),
         fetch("/api/user/state", { cache: "no-store" }),
+        fetch("/api/user/watched-anime", { cache: "no-store" }),
       ]);
 
       if (authRes.ok) {
@@ -66,6 +69,15 @@ export default function HomePage() {
         setAuthStatus(authData);
         if (authData.youtubeQuota) {
           setYoutubeQuota(authData.youtubeQuota);
+        }
+      }
+
+      if (watchedRes.ok) {
+        const watchedData = (await watchedRes.json()) as {
+          items?: WatchedAnimeItem[];
+        };
+        if (Array.isArray(watchedData.items)) {
+          setWatchedAnime(watchedData.items);
         }
       }
 
@@ -458,9 +470,11 @@ export default function HomePage() {
               tasteProfile={tasteProfile}
               playlistHistory={playlistHistory}
               customPresets={customPresets}
+              watchedAnime={watchedAnime}
               initialAnilistUsername={anilistUsername}
               onChangeTasteProfile={setTasteProfile}
               onChangeCustomPresets={handleUpdateCustomPresets}
+              onChangeWatchedAnime={setWatchedAnime}
               onGenerate={handleGenerate}
             />
           </div>

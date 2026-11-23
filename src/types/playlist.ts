@@ -56,6 +56,25 @@ export interface ExcludedTrackRef {
   animeTitle?: string;
 }
 
+export type WatchedAnimeStatus = "완료" | "보는 중";
+
+export interface WatchedAnimeItem {
+  id: string;
+  title: string;
+  status: WatchedAnimeStatus;
+  rating: string | null;
+  genre: string | null;
+  rank: number | null;
+  note: string | null;
+  source: "notion" | "manual";
+  addedAt: string;
+}
+
+export type WatchedAnimeMode =
+  | "ignore"
+  | "prefer_watched"
+  | "discover_unwatched";
+
 export interface PlaylistGenerateRequest {
   seeds: string[];
   moods: string[];
@@ -68,6 +87,7 @@ export interface PlaylistGenerateRequest {
   popularityLevel?: PopularityLevel;
   familiarityLevel?: FamiliarityLevel;
   excludeRecentTurns?: number;
+  watchedAnimeMode?: WatchedAnimeMode;
   tasteProfile?: {
     dna: TasteDNA;
     knownTracks: KnownTrackItem[];
