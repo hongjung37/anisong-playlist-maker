@@ -38,6 +38,7 @@ export default function HomePage() {
   const [playlistHistory, setPlaylistHistory] = useState<
     PlaylistHistoryEntry[]
   >([]);
+  const [anilistUsername, setAnilistUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<{
@@ -98,6 +99,7 @@ export default function HomePage() {
         setTasteProfile(userData.tasteProfile);
         setPlaylist(userData.lastPlaylist);
         setPlaylistHistory(userData.playlistHistory ?? []);
+        setAnilistUsername(userData.anilistUsername ?? null);
       }
     } catch {
       // Ignore transient network errors
@@ -366,6 +368,7 @@ export default function HomePage() {
               authStatus={authStatus}
               tasteProfile={tasteProfile}
               playlistHistory={playlistHistory}
+              initialAnilistUsername={anilistUsername}
               onChangeTasteProfile={setTasteProfile}
               onGenerate={handleGenerate}
             />

@@ -23,6 +23,7 @@ import type {
   TasteProfile,
   ThemeType,
 } from "@/types/playlist";
+import { AniListSeedImporter } from "@/components/AniListSeedImporter";
 import { TasteProfilePanel } from "@/components/TasteProfilePanel";
 
 const MOOD_OPTIONS = [
@@ -156,6 +157,7 @@ interface PlaylistBuilderProps {
   authStatus: AuthStatus | null;
   tasteProfile: TasteProfile | null;
   playlistHistory: PlaylistHistoryEntry[];
+  initialAnilistUsername?: string | null;
   onChangeTasteProfile: (profile: TasteProfile | null) => void;
   onGenerate: (request: PlaylistGenerateRequest) => void;
 }
@@ -179,6 +181,7 @@ export function PlaylistBuilder({
   authStatus,
   tasteProfile,
   playlistHistory,
+  initialAnilistUsername = null,
   onChangeTasteProfile,
   onGenerate,
 }: PlaylistBuilderProps) {
@@ -230,9 +233,10 @@ export function PlaylistBuilder({
   const addSeed = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    if (!seeds.includes(trimmed) && seeds.length < 6) {
-      setSeeds((prev) => [...prev, trimmed]);
-    }
+    setSeeds((prev) => {
+      if (prev.includes(trimmed) || prev.length >= 6) return prev;
+      return [...prev, trimmed];
+    });
     setSeedInput("");
     setSearchResults([]);
   };
@@ -465,6 +469,13 @@ export function PlaylistBuilder({
               ))}
             </div>
           )}
+
+          <AniListSeedImporter
+            initialUsername={initialAnilistUsername}
+            seeds={seeds}
+            onAddSeed={addSeed}
+            onRemoveSeed={removeSeed}
+          />
         </div>
 
         {/* Moods */}

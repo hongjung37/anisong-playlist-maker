@@ -1,4 +1,8 @@
-import type { AnimeSearchItem, PlaylistTrack } from "@/types/playlist";
+import type {
+  AniListUserMediaItem,
+  AnimeSearchItem,
+  PlaylistTrack,
+} from "@/types/playlist";
 
 const ANILIST_ENDPOINT = "https://graphql.anilist.co";
 
@@ -23,6 +27,40 @@ const SEARCH_ANIME_QUERY = `
   }
 `;
 
+const USER_ANIME_LIST_QUERY = `
+  query UserAnimeList($userName: String!, $statuses: [MediaListStatus]) {
+    MediaListCollection(
+      userName: $userName
+      type: ANIME
+      status_in: $statuses
+      sort: [SCORE_DESC, UPDATED_TIME_DESC]
+    ) {
+      lists {
+        name
+        status
+        entries {
+          score(format: POINT_100)
+          status
+          media {
+            id
+            seasonYear
+            genres
+            title {
+              romaji
+              native
+              english
+            }
+            coverImage {
+              large
+              medium
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 interface AniListMediaNode {
   id: number;
   seasonYear: number | null;
@@ -38,11 +76,23 @@ interface AniListMediaNode {
   };
 }
 
-async function queryAniList<T>(
+interface AniListGraphQLError {
+  message?: string;
+  status?: number;
+}
+
+interface AniListRawResponse<T> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  errors: AniListGraphQLError[];
+}
+
+async function queryAniListRaw<T>(
   query: string,
   variables: Record<string, unknown>,
-  timeoutMs = 4500
-): Promise<T | null> {
+  timeoutMs = 7000
+): Promise<AniListRawResponse<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -58,17 +108,37 @@ async function queryAniList<T>(
       cache: "no-store",
     });
 
-    if (!res.ok) {
-      return null;
-    }
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: T;
+      errors?: AniListGraphQLError[];
+    };
 
-    const json = (await res.json()) as { data?: T };
-    return json.data ?? null;
+    return {
+      ok: res.ok && !json.errors?.length,
+      status: res.status,
+      data: json.data ?? null,
+      errors: json.errors ?? [],
+    };
   } catch {
-    return null;
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      errors: [{ message: "AniList API 요청 시간 초과 또는 네트워크 오류" }],
+    };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function queryAniList<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  timeoutMs = 4500
+): Promise<T | null> {
+  const result = await queryAniListRaw<T>(query, variables, timeoutMs);
+  if (!result.ok) return null;
+  return result.data;
 }
 
 export async function searchAnime(
@@ -92,6 +162,109 @@ export async function searchAnime(
     genres: item.genres ?? [],
     coverImage: item.coverImage?.large ?? item.coverImage?.medium ?? null,
   }));
+}
+
+interface AniListUserListResponse {
+  MediaListCollection?: {
+    lists?: Array<{
+      name?: string;
+      status?: string;
+      entries?: Array<{
+        score?: number | null;
+        status?: AniListUserMediaItem["status"] | null;
+        media?: AniListMediaNode | null;
+      }>;
+    }>;
+  } | null;
+}
+
+export async function fetchAniListUserList(
+  userName: string,
+  statuses?: Array<"CURRENT" | "COMPLETED" | "REPEATING" | "PAUSED" | "PLANNING">
+): Promise<{
+  items: AniListUserMediaItem[];
+  notFound?: boolean;
+  error?: string;
+}> {
+  const trimmed = userName.trim();
+  if (!trimmed) {
+    return { items: [], error: "AniList 사용자 이름을 입력해 주세요." };
+  }
+
+  const effectiveStatuses =
+    statuses && statuses.length > 0
+      ? statuses
+      : ["CURRENT", "COMPLETED", "REPEATING", "PAUSED"];
+
+  const raw = await queryAniListRaw<AniListUserListResponse>(
+    USER_ANIME_LIST_QUERY,
+    { userName: trimmed, statuses: effectiveStatuses },
+    8000
+  );
+
+  const errMsg = raw.errors.map((e) => e.message ?? "").join(" ");
+  if (
+    raw.status === 404 ||
+    raw.errors.some((e) => e.status === 404) ||
+    /not found/i.test(errMsg)
+  ) {
+    return { items: [], notFound: true };
+  }
+
+  if (/private/i.test(errMsg)) {
+    return {
+      items: [],
+      notFound: true,
+      error: "AniList 목록이 비공개로 설정되어 있습니다.",
+    };
+  }
+
+  if (!raw.data?.MediaListCollection) {
+    return {
+      items: [],
+      error:
+        raw.status === 429
+          ? "AniList 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요."
+          : errMsg || "AniList 시청 목록을 불러오지 못했습니다.",
+    };
+  }
+
+  const deduped = new Map<number, AniListUserMediaItem>();
+
+  for (const list of raw.data.MediaListCollection.lists ?? []) {
+    for (const entry of list.entries ?? []) {
+      const media = entry.media;
+      if (!media?.id) continue;
+
+      const score = Number(entry.score ?? 0);
+      const item: AniListUserMediaItem = {
+        mediaId: media.id,
+        status: entry.status ?? "COMPLETED",
+        score: Number.isFinite(score) ? score : 0,
+        titleRomaji:
+          media.title?.romaji ?? media.title?.english ?? "Unknown",
+        titleNative: media.title?.native ?? "",
+        titleEnglish: media.title?.english ?? null,
+        seasonYear: media.seasonYear ?? null,
+        genres: media.genres ?? [],
+        coverImage: media.coverImage?.large ?? media.coverImage?.medium ?? null,
+      };
+
+      const existing = deduped.get(media.id);
+      if (!existing || item.score > existing.score) {
+        deduped.set(media.id, item);
+      }
+    }
+  }
+
+  const items = Array.from(deduped.values())
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (b.seasonYear ?? 0) - (a.seasonYear ?? 0);
+    })
+    .slice(0, 150);
+
+  return { items };
 }
 
 async function findCoverForAnime(candidates: string[]): Promise<{
