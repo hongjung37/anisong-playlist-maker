@@ -23,7 +23,7 @@ function getSecret(): Buffer {
   return crypto.createHash("sha256").update(raw).digest();
 }
 
-function encryptPayload(payload: object): string {
+export function encryptPayload(payload: object): string {
   const key = getSecret();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
@@ -33,7 +33,7 @@ function encryptPayload(payload: object): string {
   return Buffer.concat([iv, tag, encrypted]).toString("base64url");
 }
 
-function decryptPayload<T>(token: string): T | null {
+export function decryptPayload<T>(token: string): T | null {
   try {
     const key = getSecret();
     const buf = Buffer.from(token, "base64url");
