@@ -562,14 +562,103 @@ export function PlaylistPlayer({
     };
   }, [clearAutoAdvanceTimer]);
 
-  const handleTogglePlayPause = () => {
+  const handleTogglePlayPause = useCallback(() => {
     if (!playerRef.current || !playerReadyRef.current) return;
     if (isPlaying) {
       playerRef.current.pauseVideo();
     } else {
       playerRef.current.playVideo();
     }
-  };
+  }, [isPlaying]);
+
+  // Global keyboard shortcuts while web player is open (Space: play/pause, Shift+Arrows: prev/next)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(
+            target.tagName
+          ) ||
+          target.closest('[role="dialog"]'))
+      ) {
+        return;
+      }
+      if (document.querySelector('[role="dialog"]')) return;
+
+      if (event.code === "Space" && !event.shiftKey) {
+        if (!currentTrackRef.current?.youtubeVideoId) return;
+        event.preventDefault();
+        handleTogglePlayPause();
+      } else if (event.shiftKey && event.key === "ArrowLeft") {
+        event.preventDefault();
+        stepToAdjacent(-1, "user");
+      } else if (event.shiftKey && event.key === "ArrowRight") {
+        event.preventDefault();
+        stepToAdjacent(1, "user");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleTogglePlayPause, stepToAdjacent]);
+
+  // Sync OS / browser Media Session metadata and hardware media keys
+  useEffect(() => {
+    if (
+      typeof navigator === "undefined" ||
+      !("mediaSession" in navigator) ||
+      !currentTrack
+    ) {
+      return;
+    }
+
+    const mediaSession = navigator.mediaSession;
+    if (typeof MediaMetadata !== "undefined") {
+      mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        album: `${currentTrack.animeTitle} · ${currentTrack.themeLabel}`,
+        artwork: currentTrack.coverImage
+          ? [{ src: currentTrack.coverImage }]
+          : [],
+      });
+    }
+    mediaSession.playbackState = isPlaying ? "playing" : "paused";
+
+    const safeSetHandler = (
+      action: MediaSessionAction,
+      handler: (() => void) | null
+    ) => {
+      try {
+        mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Ignore unsupported actions in older browsers
+      }
+    };
+
+    safeSetHandler("play", () => {
+      if (playerRef.current && playerReadyRef.current) {
+        playerRef.current.playVideo();
+      }
+    });
+    safeSetHandler("pause", () => {
+      if (playerRef.current && playerReadyRef.current) {
+        playerRef.current.pauseVideo();
+      }
+    });
+    safeSetHandler("previoustrack", () => stepToAdjacent(-1, "user"));
+    safeSetHandler("nexttrack", () => stepToAdjacent(1, "user"));
+
+    return () => {
+      safeSetHandler("play", null);
+      safeSetHandler("pause", null);
+      safeSetHandler("previoustrack", null);
+      safeSetHandler("nexttrack", null);
+    };
+  }, [currentTrack, isPlaying, stepToAdjacent]);
 
   if (!currentTrack) return null;
 
@@ -732,6 +821,7 @@ export function PlaylistPlayer({
                   onClick={() => stepToAdjacent(-1, "user")}
                   disabled={activeIndex <= 0}
                   aria-label="이전 곡"
+                  title="이전 곡 (Shift+←)"
                   className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
                 >
                   <SkipBack className="h-3.5 w-3.5" />
@@ -742,6 +832,7 @@ export function PlaylistPlayer({
                   onClick={handleTogglePlayPause}
                   disabled={!currentVideoId}
                   aria-label={isPlaying ? "일시정지" : "재생"}
+                  title="재생 / 일시정지 (Space)"
                   className="inline-flex h-8 items-center gap-1 rounded bg-obi px-3 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
                 >
                   {isPlaying ? (
@@ -756,6 +847,7 @@ export function PlaylistPlayer({
                   onClick={() => stepToAdjacent(1, "user")}
                   disabled={activeIndex >= tracks.length - 1 && !repeatAll}
                   aria-label="다음 곡"
+                  title="다음 곡 (Shift+→)"
                   className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
                 >
                   <SkipForward className="h-3.5 w-3.5" />
@@ -858,6 +950,7 @@ export function PlaylistPlayer({
                     onClick={() => stepToAdjacent(-1, "user")}
                     disabled={activeIndex <= 0}
                     aria-label="이전 곡"
+                    title="이전 곡 (Shift+←)"
                     className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
                   >
                     <SkipBack className="h-3.5 w-3.5" />
@@ -867,6 +960,7 @@ export function PlaylistPlayer({
                     type="button"
                     onClick={handleTogglePlayPause}
                     disabled={!currentVideoId}
+                    title="재생 / 일시정지 (Space)"
                     className="inline-flex h-8 items-center gap-1.5 rounded bg-obi px-3.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-40"
                   >
                     {isPlaying ? (
@@ -887,6 +981,7 @@ export function PlaylistPlayer({
                     onClick={() => stepToAdjacent(1, "user")}
                     disabled={activeIndex >= tracks.length - 1 && !repeatAll}
                     aria-label="다음 곡"
+                    title="다음 곡 (Shift+→)"
                     className="inline-flex h-8 w-8 items-center justify-center rounded border border-white/15 bg-white/5 text-slate-200 transition hover:bg-white/15 disabled:opacity-35"
                   >
                     <SkipForward className="h-3.5 w-3.5" />

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -13,12 +13,14 @@ import {
   Disc3,
   Download,
   ExternalLink,
+  Filter,
   GripVertical,
   ListMusic,
   Loader2,
   Play,
   Plus,
   RefreshCw,
+  Shuffle,
   Sparkles,
   Trash2,
   AlertTriangle,
@@ -26,6 +28,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { PlaylistPlayer } from "@/components/PlaylistPlayer";
+import {
+  getVisibleTrackEntries,
+  shuffleTracks,
+} from "@/lib/playlist-utils";
 import {
   buildTrackSpinoffRequest,
   type TrackSpinoffMode,
@@ -115,8 +121,20 @@ export function PlaylistWorkspace({
   const [openSpinoffTrackId, setOpenSpinoffTrackId] = useState<string | null>(
     null
   );
+  const [onlyUnknown, setOnlyUnknown] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!openSpinoffTrackId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenSpinoffTrackId(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openSpinoffTrackId]);
 
   if (loading) {
     const activeStage = generationProgress?.stage ?? "preparing";
@@ -533,6 +551,20 @@ export function PlaylistWorkspace({
     (t) => t.inUserLibrary !== undefined
   );
   const knownCount = playlist.tracks.filter((t) => t.inUserLibrary).length;
+  const unknownCount = playlist.tracks.length - knownCount;
+  const showOnlyUnknown = onlyUnknown && hasKnownMetadata && knownCount > 0;
+  const visibleEntries = getVisibleTrackEntries(
+    playlist.tracks,
+    showOnlyUnknown
+  );
+
+  const handleShuffleTracks = () => {
+    if (playlist.tracks.length < 2) return;
+    onUpdatePlaylist({
+      ...playlist,
+      tracks: shuffleTracks(playlist.tracks, effectiveActiveTrackId),
+    });
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -847,6 +879,20 @@ export function PlaylistWorkspace({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleShuffleTracks}
+              disabled={playlist.tracks.length < 2}
+              title={
+                effectiveActiveTrackId
+                  ? "재생 중인 곡은 유지하고 나머지 트랙 순서 섞기"
+                  : "트랙 순서 랜덤 셔플"
+              }
+              className="inline-flex items-center gap-1 rounded border border-hairline bg-sheet px-2.5 py-1 text-[11px] font-medium text-ink-soft transition hover:border-hairline-strong hover:text-ink disabled:opacity-40"
+            >
+              <Shuffle className="h-3 w-3" />
+              셔플
+            </button>
             {!effectiveActiveTrackId ? (
               <button
                 type="button"
@@ -905,53 +951,103 @@ export function PlaylistWorkspace({
             )}
 
             {hasKnownMetadata && (
-              <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
-                아는 곡 {knownCount} / {playlist.tracks.length}곡
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  아는 곡 {knownCount} / {playlist.tracks.length}곡
+                </span>
+                {knownCount > 0 && (
+                  <button
+                    type="button"
+                    aria-pressed={showOnlyUnknown}
+                    onClick={() => setOnlyUnknown((prev) => !prev)}
+                    className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold tabular-nums transition ${
+                      showOnlyUnknown
+                        ? "border-cobalt bg-cobalt text-white"
+                        : "border-hairline bg-sheet-muted text-ink-soft hover:border-cobalt/40 hover:text-cobalt-ink"
+                    }`}
+                    title="내가 아는 곡을 가리고 새로운 곡만 모아보기"
+                  >
+                    <Filter className="h-2.5 w-2.5" />
+                    {showOnlyUnknown
+                      ? `전체 보기 (${playlist.tracks.length}곡)`
+                      : `모르는 곡만 (${unknownCount}곡)`}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
 
         {trackActionError && (
-          <div className="flex items-center gap-2 border-b border-red-500/30 bg-red-500/10 px-5 py-2 text-xs text-red-800 dark:text-red-200">
-            <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
-            <span>{trackActionError}</span>
+          <div className="flex items-center justify-between gap-2 border-b border-red-500/30 bg-red-500/10 px-5 py-2 text-xs text-red-800 dark:text-red-200">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
+              <span>{trackActionError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTrackActionError(null)}
+              className="rounded p-0.5 hover:bg-red-500/15"
+              aria-label="오류 알림 닫기"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
         <ol className="divide-y divide-hairline">
-          {playlist.tracks.map((track, idx) => {
-            const isCurrent = effectiveActiveTrackId === track.id;
-            const playableOnWeb = Boolean(
-              track.youtubeVideoId || canResolveYouTube
-            );
-            const prevSection =
-              idx > 0 ? playlist.tracks[idx - 1]?.setlistSection : null;
-            const showSectionHeader =
-              Boolean(track.setlistSection) &&
-              track.setlistSection !== prevSection;
-            const isRerolling = rerollingTrackId === track.id;
-            const isTogglingKnown = togglingKnownTrackId === track.id;
-            const isDragTarget =
-              dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
+          {visibleEntries.length === 0 ? (
+            <li className="px-5 py-8 text-center text-xs text-muted">
+              현재 셋리의 모든 곡이 내 아는 곡 목록에 등록되어 있습니다.{" "}
+              <button
+                type="button"
+                onClick={() => setOnlyUnknown(false)}
+                className="font-semibold text-cobalt-ink underline"
+              >
+                전체 트랙 보기
+              </button>
+            </li>
+          ) : (
+            visibleEntries.map(({ track, index: idx }, visibleIdx) => {
+              const isCurrent = effectiveActiveTrackId === track.id;
+              const playableOnWeb = Boolean(
+                track.youtubeVideoId || canResolveYouTube
+              );
+              const prevSection =
+                visibleIdx > 0
+                  ? visibleEntries[visibleIdx - 1]?.track.setlistSection
+                  : null;
+              const showSectionHeader =
+                Boolean(track.setlistSection) &&
+                track.setlistSection !== prevSection;
+              const isRerolling = rerollingTrackId === track.id;
+              const isTogglingKnown = togglingKnownTrackId === track.id;
+              const isDragTarget =
+                !showOnlyUnknown &&
+                dragOverIndex === idx &&
+                dragIndex !== null &&
+                dragIndex !== idx;
 
-            return (
-              <li
-                key={track.id}
-                id={`track-row-${track.id}`}
-                draggable
+              return (
+                <li
+                  key={track.id}
+                  id={`track-row-${track.id}`}
+                  draggable={!showOnlyUnknown}
                 onDragStart={(e) => {
+                  if (showOnlyUnknown) return;
                   setDragIndex(idx);
                   e.dataTransfer.effectAllowed = "move";
                   e.dataTransfer.setData("text/plain", String(idx));
                 }}
                 onDragOver={(e) => {
+                  if (showOnlyUnknown) return;
                   e.preventDefault();
                   if (dragOverIndex !== idx) {
                     setDragOverIndex(idx);
                   }
                 }}
                 onDrop={(e) => {
+                  if (showOnlyUnknown) return;
                   e.preventDefault();
                   if (dragIndex !== null) {
                     reorderTracks(dragIndex, idx);
@@ -981,12 +1077,14 @@ export function PlaylistWorkspace({
                 <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-5">
                   {/* Drag Handle, Index & Cover */}
                   <div className="flex items-center gap-2.5">
-                    <span
-                      className="hidden cursor-grab text-muted/60 hover:text-ink active:cursor-grabbing sm:inline-flex"
-                      title="드래그해서 순서 이동"
-                    >
-                      <GripVertical className="h-4 w-4" />
-                    </span>
+                    {!showOnlyUnknown && (
+                      <span
+                        className="hidden cursor-grab text-muted/60 hover:text-ink active:cursor-grabbing sm:inline-flex"
+                        title="드래그해서 순서 이동"
+                      >
+                        <GripVertical className="h-4 w-4" />
+                      </span>
+                    )}
                     <span
                       className={`w-6 text-right text-xs font-semibold tabular-nums ${
                         isCurrent ? "text-cobalt-ink" : "text-muted"
@@ -1159,24 +1257,28 @@ export function PlaylistWorkspace({
                         교체
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => moveTrack(idx, -1)}
-                        disabled={idx === 0}
-                        className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
-                        title="위로 이동"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveTrack(idx, 1)}
-                        disabled={idx === playlist.tracks.length - 1}
-                        className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
-                        title="아래로 이동"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
+                      {!showOnlyUnknown && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => moveTrack(idx, -1)}
+                            disabled={idx === 0}
+                            className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                            title="위로 이동"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveTrack(idx, 1)}
+                            disabled={idx === playlist.tracks.length - 1}
+                            className="rounded p-1 hover:bg-hairline/60 hover:text-ink disabled:opacity-30"
+                            title="아래로 이동"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={() => removeTrack(track.id)}
@@ -1249,7 +1351,8 @@ export function PlaylistWorkspace({
                 )}
               </li>
             );
-          })}
+          })
+          )}
         </ol>
 
         {/* Extend Playlist Footer Bar */}
