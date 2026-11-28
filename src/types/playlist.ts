@@ -1,4 +1,20 @@
-export type ThemeType = "OP" | "ED" | "OST" | "INSERT" | "CHARACTER";
+export type SceneDomain = "anime" | "vocaloid" | "rhythm_doujin";
+
+export type VocaloidVocalMode =
+  | "original_only"
+  | "allow_covers"
+  | "covers_focus";
+
+export type ThemeType =
+  | "OP"
+  | "ED"
+  | "OST"
+  | "INSERT"
+  | "CHARACTER"
+  | "VOCALOID"
+  | "UTAITE"
+  | "RHYTHM"
+  | "DOUJIN";
 
 export type EraFilter = "ALL" | "2020s" | "2010s" | "2000s" | "classic";
 
@@ -29,6 +45,7 @@ export interface KnownTrackItem {
   channelTitle?: string;
   videoId?: string;
   sourceName: string;
+  scene?: SceneDomain;
 }
 
 export interface TasteDNA {
@@ -54,6 +71,7 @@ export interface ExcludedTrackRef {
   artist: string;
   artistRomaji?: string;
   animeTitle?: string;
+  scene?: SceneDomain;
 }
 
 export type WatchedAnimeStatus = "완료" | "보는 중";
@@ -76,6 +94,8 @@ export type WatchedAnimeMode =
   | "discover_unwatched";
 
 export interface PlaylistGenerateRequest {
+  scenes?: SceneDomain[];
+  vocaloidVocalMode?: VocaloidVocalMode;
   seeds: string[];
   moods: string[];
   genres?: string[];
@@ -96,6 +116,7 @@ export interface PlaylistGenerateRequest {
 
 export interface PlaylistTrack {
   id: string;
+  scene?: SceneDomain;
   title: string;
   titleRomaji: string;
   artist: string;
@@ -124,6 +145,7 @@ export interface GeneratedPlaylist {
   description: string;
   curatorSummary: string;
   mode: "gemini" | "demo-fallback";
+  scenes?: SceneDomain[];
   tracks: PlaylistTrack[];
 }
 
@@ -161,6 +183,8 @@ export interface CustomPreset {
   label: string;
   createdAt: string;
   data: {
+    scenes?: SceneDomain[];
+    vocaloidVocalMode?: VocaloidVocalMode;
     seeds: string[];
     moods: string[];
     genres: string[];

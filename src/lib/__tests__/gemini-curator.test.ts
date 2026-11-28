@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildPlaylistJsonSchema,
   generateFallbackPlaylist,
   hydrateTracks,
   isTrackExcluded,
@@ -196,5 +197,81 @@ describe("gemini-curator helpers & fallback curation", () => {
     expect(
       level5.tracks.some((t) => t.title === "青春コンプレックス")
     ).toBe(false);
+  });
+
+  it("isolates buildPlaylistJsonSchema by active scenes and vocaloidVocalMode", () => {
+    const animeOnlySchema = buildPlaylistJsonSchema(["anime"]);
+    expect(animeOnlySchema.properties.tracks.items.properties.scene.enum).toEqual([
+      "anime",
+    ]);
+    expect(
+      animeOnlySchema.properties.tracks.items.properties.themeType.enum
+    ).toEqual(["OP", "ED", "OST", "INSERT", "CHARACTER"]);
+
+    const vocaloidOriginal = buildPlaylistJsonSchema(
+      ["vocaloid"],
+      "original_only"
+    );
+    expect(
+      vocaloidOriginal.properties.tracks.items.properties.themeType.enum
+    ).toEqual(["VOCALOID"]);
+
+    const vocaloidWithCovers = buildPlaylistJsonSchema(
+      ["vocaloid"],
+      "allow_covers"
+    );
+    expect(
+      vocaloidWithCovers.properties.tracks.items.properties.themeType.enum
+    ).toEqual(["VOCALOID", "UTAITE"]);
+  });
+
+  it("generateFallbackPlaylist supports rhythm_doujin, vocaloid modes, and crossover mixes", () => {
+    const rhythmOnly = generateFallbackPlaylist({
+      scenes: ["rhythm_doujin"],
+      seeds: ["나나히라"],
+      moods: [],
+      genres: [],
+      themeTypes: ["RHYTHM", "DOUJIN"],
+      era: "ALL",
+      trackCount: 5,
+    });
+    expect(rhythmOnly.scenes).toEqual(["rhythm_doujin"]);
+    expect(rhythmOnly.tracks.length).toBeGreaterThan(0);
+    expect(
+      rhythmOnly.tracks.every((t) => t.scene === "rhythm_doujin")
+    ).toBe(true);
+    expect(
+      rhythmOnly.tracks.some((t) => t.artist.includes("ななひら"))
+    ).toBe(true);
+
+    const vocaloidOriginalOnly = generateFallbackPlaylist({
+      scenes: ["vocaloid"],
+      vocaloidVocalMode: "original_only",
+      seeds: [],
+      moods: [],
+      genres: [],
+      themeTypes: ["VOCALOID", "UTAITE"],
+      era: "ALL",
+      trackCount: 6,
+    });
+    expect(
+      vocaloidOriginalOnly.tracks.every(
+        (t) => t.scene === "vocaloid" && t.themeType !== "UTAITE"
+      )
+    ).toBe(true);
+
+    const crossover = generateFallbackPlaylist({
+      scenes: ["anime", "rhythm_doujin"],
+      seeds: ["나나히라"],
+      moods: [],
+      genres: [],
+      themeTypes: ["OP", "DOUJIN", "RHYTHM"],
+      era: "ALL",
+      trackCount: 6,
+    });
+    expect(crossover.tracks.some((t) => t.scene === "anime")).toBe(true);
+    expect(crossover.tracks.some((t) => t.scene === "rhythm_doujin")).toBe(
+      true
+    );
   });
 });
