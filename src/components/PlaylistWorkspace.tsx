@@ -49,7 +49,7 @@ import type {
 
 const GENERATION_STEPS: Array<{ stage: GenerationStage; label: string }> = [
   { stage: "curating", label: "1. AI 셋리 선곡" },
-  { stage: "enriching_anilist", label: "2. AniList 커버 매칭" },
+  { stage: "enriching_anilist", label: "2. 출처 · 커버 매칭" },
   { stage: "enriching_youtube", label: "3. YouTube 영상 확인" },
   { stage: "saving", label: "4. 히스토리 저장" },
 ];
@@ -71,6 +71,14 @@ const THEME_BADGE_STYLES: Record<ThemeType, string> = {
   OST: "bg-sheet-muted text-ink-soft border-hairline-strong",
   CHARACTER:
     "bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-300",
+  VOCALOID:
+    "bg-teal-500/10 text-teal-700 border-teal-500/25 dark:text-teal-300",
+  UTAITE:
+    "bg-rose-500/10 text-rose-700 border-rose-500/25 dark:text-rose-300",
+  RHYTHM:
+    "bg-indigo-500/10 text-indigo-700 border-indigo-500/25 dark:text-indigo-300",
+  DOUJIN:
+    "bg-fuchsia-500/10 text-fuchsia-700 border-fuchsia-500/25 dark:text-fuchsia-300",
 };
 
 interface PlaylistWorkspaceProps {
@@ -336,6 +344,7 @@ export function PlaylistWorkspace({
             artistRomaji: track.artistRomaji,
             animeTitle: track.animeTitle,
             youtubeVideoId: track.youtubeVideoId,
+            scene: track.scene,
           },
           known: nextKnown,
         }),
@@ -427,9 +436,17 @@ export function PlaylistWorkspace({
   ) => {
     onUpdatePlaylist({
       ...playlist,
-      tracks: playlist.tracks.map((t) =>
-        t.id === trackId ? { ...t, ...patch } : t
-      ),
+      tracks: playlist.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const fallbackCover =
+          !t.coverImage &&
+          patch.youtubeVideoId &&
+          t.scene &&
+          t.scene !== "anime"
+            ? `https://i.ytimg.com/vi/${patch.youtubeVideoId}/hqdefault.jpg`
+            : t.coverImage;
+        return { ...t, ...patch, coverImage: fallbackCover };
+      }),
     });
   };
 
@@ -1141,11 +1158,19 @@ export function PlaylistWorkspace({
                     </div>
 
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                      {track.scene && track.scene !== "anime" && (
+                        <span className="rounded bg-sheet-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted">
+                          {track.scene === "vocaloid" ? "보카로" : "리듬·동인"}
+                        </span>
+                      )}
                       <span className="font-semibold text-cobalt-ink">
                         {track.animeTitle}
                       </span>
                       <span
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${THEME_BADGE_STYLES[track.themeType]}`}
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
+                          THEME_BADGE_STYLES[track.themeType] ??
+                          "bg-sheet-muted text-ink-soft border-hairline-strong"
+                        }`}
                       >
                         {track.themeLabel}
                       </span>

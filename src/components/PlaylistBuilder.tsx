@@ -28,8 +28,10 @@ import type {
   PlaylistGenerateRequest,
   PlaylistHistoryEntry,
   PopularityLevel,
+  SceneDomain,
   TasteProfile,
   ThemeType,
+  VocaloidVocalMode,
   WatchedAnimeItem,
   WatchedAnimeMode,
 } from "@/types/playlist";
@@ -94,12 +96,62 @@ const POPULARITY_STEPS: Array<{
   },
 ];
 
-const THEME_TYPE_OPTIONS: Array<{ value: ThemeType; label: string; hint: string }> = [
-  { value: "OP", label: "OP", hint: "오프닝" },
-  { value: "ED", label: "ED", hint: "엔딩" },
-  { value: "INSERT", label: "삽입곡", hint: "극중가" },
-  { value: "OST", label: "OST", hint: "연주곡" },
-  { value: "CHARACTER", label: "캐릭터송", hint: "성우곡" },
+const SCENE_OPTIONS: Array<{
+  value: SceneDomain;
+  label: string;
+  desc: string;
+}> = [
+  { value: "anime", label: "애니송", desc: "OP · ED · OST · 삽입곡" },
+  { value: "vocaloid", label: "보컬로이드", desc: "미쿠 · 프로세카 · 우타이테" },
+  { value: "rhythm_doujin", label: "리듬게임 · 동인", desc: "나나히라 · SDVX · 동방" },
+];
+
+const VOCALOID_VOCAL_MODE_OPTIONS: Array<{
+  value: VocaloidVocalMode;
+  label: string;
+}> = [
+  { value: "original_only", label: "합성음성 원곡만" },
+  { value: "allow_covers", label: "우타이테 허용" },
+  { value: "covers_focus", label: "우타이테 위주" },
+];
+
+const VOCALOID_QUICK_SEEDS = [
+  "DECO*27",
+  "wowaka",
+  "Orangestar",
+  "나유탄 성인",
+  "이요와",
+  "프로젝트 세카이",
+  "카후(KAFU)",
+];
+
+const RHYTHM_DOUJIN_QUICK_SEEDS = [
+  "나나히라",
+  "Camellia",
+  "t+pazolite",
+  "HARDCORE TANO*C",
+  "SOUND VOLTEX",
+  "maimai",
+  "CHUNITHM",
+  "BMS",
+  "동방 어레인지",
+];
+
+const THEME_TYPE_OPTIONS: Array<{
+  value: ThemeType;
+  label: string;
+  hint: string;
+  scene: SceneDomain;
+}> = [
+  { value: "OP", label: "OP", hint: "오프닝", scene: "anime" },
+  { value: "ED", label: "ED", hint: "엔딩", scene: "anime" },
+  { value: "INSERT", label: "삽입곡", hint: "극중가", scene: "anime" },
+  { value: "OST", label: "OST", hint: "연주곡", scene: "anime" },
+  { value: "CHARACTER", label: "캐릭터송", hint: "성우곡", scene: "anime" },
+  { value: "VOCALOID", label: "보카로", hint: "합성음성", scene: "vocaloid" },
+  { value: "UTAITE", label: "우타이테", hint: "보컬 커버", scene: "vocaloid" },
+  { value: "RHYTHM", label: "리듬게임", hint: "기종 수록", scene: "rhythm_doujin" },
+  { value: "DOUJIN", label: "동인·전파", hint: "서클/동방", scene: "rhythm_doujin" },
 ];
 
 const ERA_OPTIONS: Array<{ value: EraFilter; label: string }> = [
@@ -117,6 +169,7 @@ const PRESETS: Array<{
   {
     label: "청춘 밴드 록",
     data: {
+      scenes: ["anime"],
       seeds: ["봇치 더 록!", "걸즈 밴드 크라이"],
       moods: ["질주감 / 열혈", "청량 / 여름"],
       genres: ["기타록 / 밴드"],
@@ -129,6 +182,7 @@ const PRESETS: Array<{
   {
     label: "새벽 감성 ED",
     data: {
+      scenes: ["anime"],
       seeds: ["장송의 프리렌", "바케모노가타리"],
       moods: ["새벽 감성", "울컥 / 감동"],
       genres: ["어쿠스틱 / 피아노 발라드"],
@@ -141,6 +195,7 @@ const PRESETS: Array<{
   {
     label: "다크 배틀",
     data: {
+      scenes: ["anime"],
       seeds: ["주술회전", "체인소 맨"],
       moods: ["다크 / 비장함", "질주감 / 열혈"],
       genres: ["기타록 / 밴드", "일렉트로 / 퓨처베이스"],
@@ -153,6 +208,7 @@ const PRESETS: Array<{
   {
     label: "이세계 · 오케스트라",
     data: {
+      scenes: ["anime"],
       seeds: ["Re:제로부터 시작하는 이세계 생활", "알드노아. 제로"],
       moods: ["몽환 / 이세계", "울컥 / 감동"],
       genres: ["심포닉 / 오케스트라"],
@@ -160,6 +216,46 @@ const PRESETS: Array<{
       era: "ALL",
       popularityLevel: 3,
       prompt: "신스와 오케스트라 스케일이 큰 웅장한 곡들과 몽환적인 엔딩을 섞어 줘.",
+    },
+  },
+  {
+    label: "나나히라 · 전파 하이텐션",
+    data: {
+      scenes: ["rhythm_doujin", "anime"],
+      seeds: ["나나히라", "Camellia"],
+      moods: ["발랄 / 일상", "질주감 / 열혈"],
+      genres: ["전파송 / 덴파", "유로비트 / 하이테크"],
+      themeTypes: ["DOUJIN", "RHYTHM", "OP", "CHARACTER"],
+      era: "ALL",
+      popularityLevel: 3,
+      prompt: "나나히라·Confetto 특유의 하이톤 전파송과 결이 맞는 리듬게임/애니 전파곡을 자연스럽게 이어줘.",
+    },
+  },
+  {
+    label: "보카로 록 × 청춘 밴드",
+    data: {
+      scenes: ["anime", "vocaloid"],
+      vocaloidVocalMode: "original_only",
+      seeds: ["봇치 더 록!", "wowaka", "Orangestar"],
+      moods: ["질주감 / 열혈", "울컥 / 감동"],
+      genres: ["기타록 / 밴드", "보컬로이드 / 우타이테계"],
+      themeTypes: ["OP", "INSERT", "VOCALOID"],
+      era: "ALL",
+      popularityLevel: 3,
+      prompt: "빠른 기타 리프와 피아노 록 사운드를 다리 삼아 밴드 애니송과 보카로 록을 매끄럽게 교차해 줘.",
+    },
+  },
+  {
+    label: "리듬게임 보스곡 러시",
+    data: {
+      scenes: ["rhythm_doujin"],
+      seeds: ["SOUND VOLTEX", "t+pazolite", "USAO"],
+      moods: ["긴박 / 배틀", "질주감 / 열혈"],
+      genres: ["유로비트 / 하이테크", "일렉트로 / 퓨처베이스"],
+      themeTypes: ["RHYTHM", "DOUJIN"],
+      era: "ALL",
+      popularityLevel: 3,
+      prompt: "고BPM 해피하드코어, 스피드코어, 아트코어 중심으로 점차 템포가 끓어오르는 아케이드 셋리.",
     },
   },
 ];
@@ -205,6 +301,9 @@ export function PlaylistBuilder({
   onChangeWatchedAnime,
   onGenerate,
 }: PlaylistBuilderProps) {
+  const [scenes, setScenes] = useState<SceneDomain[]>(["anime"]);
+  const [vocaloidVocalMode, setVocaloidVocalMode] =
+    useState<VocaloidVocalMode>("original_only");
   const [familiarityLevel, setFamiliarityLevel] = useState<FamiliarityLevel>(3);
   const [useTasteDna, setUseTasteDna] = useState<boolean>(true);
   const [seeds, setSeeds] = useState<string[]>([]);
@@ -231,9 +330,13 @@ export function PlaylistBuilder({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [tournamentOpen, setTournamentOpen] = useState(false);
 
+  const hasAnimeScene = scenes.includes("anime");
+  const hasVocaloidScene = scenes.includes("vocaloid");
+  const hasRhythmScene = scenes.includes("rhythm_doujin");
+
   useEffect(() => {
     const q = seedInput.trim();
-    if (q.length < 2) {
+    if (!hasAnimeScene || q.length < 2) {
       return;
     }
 
@@ -257,7 +360,67 @@ export function PlaylistBuilder({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [seedInput]);
+  }, [seedInput, hasAnimeScene]);
+
+  const toggleScene = (scene: SceneDomain) => {
+    const isRemoving = scenes.includes(scene);
+    if (isRemoving && scenes.length === 1) return;
+
+    const nextScenes: SceneDomain[] = isRemoving
+      ? scenes.filter((s) => s !== scene)
+      : [...scenes, scene];
+
+    setScenes(nextScenes);
+
+    if (isRemoving && scene === "anime") {
+      setActiveSeedDrawer(null);
+      setSearchResults([]);
+    }
+
+    setThemeTypes((prev) => {
+      let next = prev.filter((t) => {
+        const opt = THEME_TYPE_OPTIONS.find((o) => o.value === t);
+        return opt ? nextScenes.includes(opt.scene) : false;
+      });
+      if (!isRemoving) {
+        if (scene === "anime" && !next.some((t) => ["OP", "ED", "INSERT", "OST", "CHARACTER"].includes(t))) {
+          next = [...next, "OP", "ED", "INSERT"];
+        }
+        if (scene === "vocaloid" && !next.includes("VOCALOID")) {
+          next = [...next, "VOCALOID"];
+          if (vocaloidVocalMode !== "original_only" && !next.includes("UTAITE")) {
+            next.push("UTAITE");
+          }
+        }
+        if (scene === "rhythm_doujin") {
+          if (!next.includes("RHYTHM")) next = [...next, "RHYTHM"];
+          if (!next.includes("DOUJIN")) next = [...next, "DOUJIN"];
+        }
+      }
+      if (next.length === 0) {
+        const fallbackOpt = THEME_TYPE_OPTIONS.find((o) =>
+          nextScenes.includes(o.scene)
+        );
+        return fallbackOpt ? [fallbackOpt.value] : ["OP"];
+      }
+      return Array.from(new Set(next));
+    });
+  };
+
+  const handleVocaloidModeChange = (mode: VocaloidVocalMode) => {
+    setVocaloidVocalMode(mode);
+    setThemeTypes((prev) => {
+      if (mode === "original_only") {
+        const filtered = prev.filter((t) => t !== "UTAITE");
+        if (filtered.length > 0) return filtered;
+        return ["VOCALOID"];
+      }
+      if (mode === "covers_focus" && !prev.includes("UTAITE")) {
+        return [...prev, "UTAITE"];
+      }
+      return prev;
+    });
+  };
 
   const addSeed = (value: string) => {
     const trimmed = value.trim();
@@ -296,6 +459,16 @@ export function PlaylistBuilder({
   };
 
   const applyPreset = (presetData: Partial<PlaylistGenerateRequest>) => {
+    if (presetData.scenes && presetData.scenes.length > 0) {
+      setScenes(presetData.scenes);
+      if (!presetData.scenes.includes("anime")) {
+        setActiveSeedDrawer(null);
+        setSearchResults([]);
+      }
+    }
+    if (presetData.vocaloidVocalMode) {
+      setVocaloidVocalMode(presetData.vocaloidVocalMode);
+    }
     if (presetData.seeds) setSeeds(presetData.seeds);
     if (presetData.moods) setMoods(presetData.moods);
     if (presetData.genres) setGenres(presetData.genres);
@@ -309,6 +482,8 @@ export function PlaylistBuilder({
   };
 
   const resetConditions = () => {
+    setScenes(["anime"]);
+    setVocaloidVocalMode("original_only");
     setSeeds([]);
     setSeedInput("");
     setSearchResults([]);
@@ -330,6 +505,8 @@ export function PlaylistBuilder({
       label,
       createdAt: new Date().toISOString(),
       data: {
+        scenes,
+        vocaloidVocalMode,
         seeds,
         moods,
         genres,
@@ -353,6 +530,8 @@ export function PlaylistBuilder({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onGenerate({
+      scenes,
+      vocaloidVocalMode,
       seeds,
       moods,
       genres,
@@ -362,7 +541,7 @@ export function PlaylistBuilder({
       popularityLevel,
       includeHiddenGems: popularityLevel >= 3,
       excludeRecentTurns: excludeRecentEnabled ? recentExcludeTurns : 0,
-      watchedAnimeMode,
+      watchedAnimeMode: hasAnimeScene ? watchedAnimeMode : "ignore",
       prompt,
       familiarityLevel,
       tasteProfile:
@@ -420,6 +599,70 @@ export function PlaylistBuilder({
           onChangeFamiliarity={setFamiliarityLevel}
           onAddSeed={addSeed}
         />
+
+        {/* Music Scene Multi-Toggle */}
+        <div className="py-3.5">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-ink">음악 씬</span>
+            {scenes.length > 1 ? (
+              <span className="rounded bg-cobalt-soft px-2 py-0.5 text-[10px] font-semibold text-cobalt-ink">
+                크로스오버 ({scenes.length}개 씬)
+              </span>
+            ) : (
+              <span className="text-[11px] text-muted">복수 선택 가능</span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {SCENE_OPTIONS.map((opt) => {
+              const active = scenes.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleScene(opt.value)}
+                  className={`flex flex-col items-start rounded-md border px-2.5 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                    active
+                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                      : "border-hairline bg-sheet text-ink-soft hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  <span className="text-xs font-semibold">{opt.label}</span>
+                  <span className="mt-0.5 truncate text-[10px] opacity-80">
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {hasVocaloidScene && (
+            <div className="mt-2.5 rounded-md border border-hairline bg-sheet-muted p-2">
+              <div className="mb-1.5 text-[10px] font-semibold text-ink">
+                보컬로이드 보컬 범위
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {VOCALOID_VOCAL_MODE_OPTIONS.map((opt) => {
+                  const active = vocaloidVocalMode === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleVocaloidModeChange(opt.value)}
+                      className={`rounded border py-1 text-[10px] font-semibold transition ${
+                        active
+                          ? "border-cobalt bg-sheet text-cobalt-ink shadow-2xs"
+                          : "border-transparent text-muted hover:text-ink"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Quick Presets & Saved Custom Presets */}
         <div className="py-4">
@@ -533,10 +776,14 @@ export function PlaylistBuilder({
             htmlFor="seed-search-input"
             className="mb-1 block text-xs font-semibold text-ink"
           >
-            기준 작품, 곡 또는 아티스트
+            {hasAnimeScene && !hasVocaloidScene && !hasRhythmScene
+              ? "기준 작품, 곡 또는 아티스트"
+              : "기준 시드 (작품 · 프로듀서 · 서클 · 리듬게임)"}
           </label>
           <p className="mb-2.5 text-[11px] leading-relaxed text-muted">
-            영문·로마지 입력 시 작품 DB 자동완성이 열립니다. 한글 제목이나 작곡가명은 입력 후 Enter로 추가하세요.
+            {hasAnimeScene
+              ? "영문·로마지 입력 시 AniList 작품 자동완성이 열립니다. 아티스트·서클·기종명은 입력 후 Enter로 추가하세요."
+              : "프로듀서(P), 아티스트, 서클, 리듬게임 기종 또는 곡명을 입력 후 Enter로 추가하세요."}
           </p>
 
           <div className="relative flex items-center">
@@ -558,7 +805,13 @@ export function PlaylistBuilder({
                   addSeed(seedInput);
                 }
               }}
-              placeholder="예: Bocchi the Rock, 장송의 프리렌, Sawano"
+              placeholder={
+                hasRhythmScene && !hasAnimeScene
+                  ? "예: 나나히라, Camellia, SOUND VOLTEX, t+pazolite"
+                  : hasVocaloidScene && !hasAnimeScene
+                    ? "예: DECO*27, wowaka, Orangestar, 프로젝트 세카이"
+                    : "예: Bocchi the Rock, 장송의 프리렌, 나나히라, DECO*27"
+              }
               className="w-full rounded-md border border-hairline-strong bg-sheet py-2 pl-9 pr-16 text-sm text-ink placeholder:text-muted/70 focus:border-cobalt focus:outline-none"
             />
             <button
@@ -638,117 +891,183 @@ export function PlaylistBuilder({
             </div>
           )}
 
-          {/* Unified Seed Source Tabs */}
-          <div className="mt-3 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={() =>
-                setActiveSeedDrawer((prev) =>
-                  prev === "watched" ? null : "watched"
-                )
-              }
-              className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
-                activeSeedDrawer === "watched"
-                  ? "border-obi bg-obi-soft text-obi-ink"
-                  : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
-              }`}
-            >
-              <BookMarked className="h-3 w-3 shrink-0 text-obi" />
-              <span className="truncate">내 본 작품 ({watchedAnime.length})</span>
-              {activeSeedDrawer === "watched" ? (
-                <ChevronUp className="h-3 w-3 shrink-0" />
-              ) : (
-                <ChevronDown className="h-3 w-3 shrink-0" />
+          {(hasVocaloidScene || hasRhythmScene) && (
+            <div className="mt-2.5 space-y-2">
+              {hasVocaloidScene && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-muted">
+                    보카로 추천 시드
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {VOCALOID_QUICK_SEEDS.map((seed) => {
+                      const active = seeds.includes(seed);
+                      return (
+                        <button
+                          key={seed}
+                          type="button"
+                          onClick={() =>
+                            active ? removeSeed(seed) : addSeed(seed)
+                          }
+                          className={`rounded border px-2 py-0.5 text-[11px] font-medium transition ${
+                            active
+                              ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                              : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+                          }`}
+                        >
+                          + {seed}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                setActiveSeedDrawer((prev) =>
-                  prev === "anilist" ? null : "anilist"
-                )
-              }
-              className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
-                activeSeedDrawer === "anilist"
-                  ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
-                  : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
-              }`}
-            >
-              <Tv className="h-3 w-3 shrink-0 text-cobalt" />
-              <span className="truncate">
-                AniList 목록{initialAnilistUsername ? ` (@${initialAnilistUsername})` : ""}
-              </span>
-              {activeSeedDrawer === "anilist" ? (
-                <ChevronUp className="h-3 w-3 shrink-0" />
-              ) : (
-                <ChevronDown className="h-3 w-3 shrink-0" />
+              {hasRhythmScene && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-muted">
+                    리듬게임 · 동인 추천 시드
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {RHYTHM_DOUJIN_QUICK_SEEDS.map((seed) => {
+                      const active = seeds.includes(seed);
+                      return (
+                        <button
+                          key={seed}
+                          type="button"
+                          onClick={() =>
+                            active ? removeSeed(seed) : addSeed(seed)
+                          }
+                          className={`rounded border px-2 py-0.5 text-[11px] font-medium transition ${
+                            active
+                              ? "border-obi bg-obi-soft text-obi-ink"
+                              : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+                          }`}
+                        >
+                          + {seed}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
-            </button>
-          </div>
-
-          <WatchedAnimePanel
-            items={watchedAnime}
-            seeds={seeds}
-            open={activeSeedDrawer === "watched"}
-            hideToggleButton
-            onAddSeed={addSeed}
-            onRemoveSeed={removeSeed}
-            onChangeItems={(next) => onChangeWatchedAnime?.(next)}
-          />
-
-          <AniListSeedImporter
-            initialUsername={initialAnilistUsername}
-            seeds={seeds}
-            open={activeSeedDrawer === "anilist"}
-            hideToggleButton
-            onAddSeed={addSeed}
-            onRemoveSeed={removeSeed}
-          />
-
-          {watchedAnime.length > 0 && (
-            <div className="mt-3 rounded-md border border-hairline bg-sheet-muted p-2.5">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold text-ink">
-                  본 작품 선곡 반영
-                </span>
-                <span className="text-[10px] text-muted">
-                  보관함 {watchedAnime.length}작품 기준
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-1">
-                {(
-                  [
-                    { value: "ignore", label: "반영 안 함" },
-                    { value: "prefer_watched", label: "본 작품 위주" },
-                    { value: "discover_unwatched", label: "안 본 작품 발굴" },
-                  ] as const
-                ).map((opt) => {
-                  const active = watchedAnimeMode === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setWatchedAnimeMode(opt.value)}
-                      className={`rounded border py-1.5 text-[10px] font-semibold transition ${
-                        active
-                          ? "border-obi bg-obi-soft text-obi-ink"
-                          : "border-hairline bg-sheet text-muted hover:text-ink"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
-                {watchedAnimeMode === "prefer_watched"
-                  ? "보관함의 인생작·명작과 본 작품들의 OP/ED/OST 비중을 높여 선곡합니다."
-                  : watchedAnimeMode === "discover_unwatched"
-                    ? "보관함에 있는 이미 본 작품은 제외하고 새로운 애니의 명곡만 발굴합니다."
-                    : "시드로 고른 항목 외에는 본 작품 보관함을 선곡 제약에 쓰지 않습니다."}
-              </p>
             </div>
+          )}
+
+          {/* Unified Seed Source Tabs (Anime scene only) */}
+          {hasAnimeScene && (
+            <>
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveSeedDrawer((prev) =>
+                      prev === "watched" ? null : "watched"
+                    )
+                  }
+                  className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
+                    activeSeedDrawer === "watched"
+                      ? "border-obi bg-obi-soft text-obi-ink"
+                      : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  <BookMarked className="h-3 w-3 shrink-0 text-obi" />
+                  <span className="truncate">내 본 작품 ({watchedAnime.length})</span>
+                  {activeSeedDrawer === "watched" ? (
+                    <ChevronUp className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 shrink-0" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveSeedDrawer((prev) =>
+                      prev === "anilist" ? null : "anilist"
+                    )
+                  }
+                  className={`inline-flex items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-[11px] font-medium transition ${
+                    activeSeedDrawer === "anilist"
+                      ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
+                      : "border-hairline bg-sheet-muted text-ink-soft hover:border-hairline-strong hover:text-ink"
+                  }`}
+                >
+                  <Tv className="h-3 w-3 shrink-0 text-cobalt" />
+                  <span className="truncate">
+                    AniList 목록{initialAnilistUsername ? ` (@${initialAnilistUsername})` : ""}
+                  </span>
+                  {activeSeedDrawer === "anilist" ? (
+                    <ChevronUp className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3 shrink-0" />
+                  )}
+                </button>
+              </div>
+
+              <WatchedAnimePanel
+                items={watchedAnime}
+                seeds={seeds}
+                open={activeSeedDrawer === "watched"}
+                hideToggleButton
+                onAddSeed={addSeed}
+                onRemoveSeed={removeSeed}
+                onChangeItems={(next) => onChangeWatchedAnime?.(next)}
+              />
+
+              <AniListSeedImporter
+                initialUsername={initialAnilistUsername}
+                seeds={seeds}
+                open={activeSeedDrawer === "anilist"}
+                hideToggleButton
+                onAddSeed={addSeed}
+                onRemoveSeed={removeSeed}
+              />
+
+              {watchedAnime.length > 0 && (
+                <div className="mt-3 rounded-md border border-hairline bg-sheet-muted p-2.5">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-ink">
+                      본 작품 선곡 반영
+                      {scenes.length > 1 ? " (애니송 트랙에만 적용)" : ""}
+                    </span>
+                    <span className="text-[10px] text-muted">
+                      보관함 {watchedAnime.length}작품 기준
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(
+                      [
+                        { value: "ignore", label: "반영 안 함" },
+                        { value: "prefer_watched", label: "본 작품 위주" },
+                        { value: "discover_unwatched", label: "안 본 작품 발굴" },
+                      ] as const
+                    ).map((opt) => {
+                      const active = watchedAnimeMode === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setWatchedAnimeMode(opt.value)}
+                          className={`rounded border py-1.5 text-[10px] font-semibold transition ${
+                            active
+                              ? "border-obi bg-obi-soft text-obi-ink"
+                              : "border-hairline bg-sheet text-muted hover:text-ink"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+                    {watchedAnimeMode === "prefer_watched"
+                      ? "보관함의 인생작·명작과 본 작품들의 OP/ED/OST 비중을 높여 선곡합니다."
+                      : watchedAnimeMode === "discover_unwatched"
+                        ? "보관함에 있는 이미 본 작품은 제외하고 새로운 애니의 명곡만 발굴합니다."
+                        : "시드로 고른 항목 외에는 본 작품 보관함을 선곡 제약에 쓰지 않습니다."}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -868,15 +1187,17 @@ export function PlaylistBuilder({
               {/* Theme Types */}
               <div>
                 <div className="mb-2 text-xs font-semibold text-ink">곡 유형</div>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {THEME_TYPE_OPTIONS.map((opt) => {
+                <div className="flex flex-wrap gap-1.5">
+                  {THEME_TYPE_OPTIONS.filter((opt) =>
+                    scenes.includes(opt.scene)
+                  ).map((opt) => {
                     const active = themeTypes.includes(opt.value);
                     return (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => toggleThemeType(opt.value)}
-                        className={`flex flex-col items-center rounded-md border py-2 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
+                        className={`flex min-w-[60px] flex-1 flex-col items-center rounded-md border px-2 py-2 text-center transition focus-visible:outline-2 focus-visible:outline-cobalt ${
                           active
                             ? "border-cobalt bg-cobalt-soft text-cobalt-ink"
                             : "border-hairline bg-sheet text-muted hover:border-hairline-strong hover:text-ink"
@@ -896,7 +1217,9 @@ export function PlaylistBuilder({
                   htmlFor="era-select"
                   className="mb-1.5 block text-xs font-semibold text-ink"
                 >
-                  방영 연대
+                  {hasAnimeScene && !hasVocaloidScene && !hasRhythmScene
+                    ? "방영 연대"
+                    : "발표 / 방영 연대"}
                 </label>
                 <select
                   id="era-select"
