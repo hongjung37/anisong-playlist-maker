@@ -295,6 +295,10 @@ export async function enrichTracksWithAniList(
 
   return Promise.all(
     tracks.map(async (track) => {
+      if (track.scene && track.scene !== "anime") {
+        return track;
+      }
+
       const key = (
         track.animeTitleRomaji ||
         track.animeTitleJapanese ||

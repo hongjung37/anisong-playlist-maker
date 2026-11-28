@@ -13,6 +13,9 @@ const RerollSchema = z.object({
     description: z.string(),
     curatorSummary: z.string(),
     mode: z.enum(["gemini", "demo-fallback"]),
+    scenes: z
+      .array(z.enum(["anime", "vocaloid", "rhythm_doujin"]))
+      .optional(),
     tracks: z.array(z.any()).min(1),
   }),
   trackId: z.string().min(1),

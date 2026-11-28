@@ -12,6 +12,8 @@ import type {
   ExportTrackResult,
   KnownTrackItem,
   PlaylistTrack,
+  SceneDomain,
+  ThemeType,
   YouTubePlaylistSummary,
 } from "@/types/playlist";
 
@@ -68,9 +70,38 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
+const GENERIC_ORIGIN_LABELS = new Set([
+  "보컬로이드",
+  "vocaloid",
+  "우타이테",
+  "utaite",
+  "동인",
+  "동인곡",
+  "doujin",
+  "리듬게임",
+  "rhythm",
+  "rhythmgame",
+  "original",
+  "오리지널",
+]);
+
+function isGenericOriginLabel(str: string): boolean {
+  const norm = str.trim().toLowerCase().replace(/\s+/g, "");
+  return !norm || GENERIC_ORIGIN_LABELS.has(norm);
+}
+
+export function getYouTubeThumbnailUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
 function buildSearchUrls(track: PlaylistTrack) {
+  const originRaw = track.animeTitleJapanese || track.animeTitle;
+  const includeOrigin =
+    !track.scene ||
+    track.scene === "anime" ||
+    !isGenericOriginLabel(originRaw);
   const q = encodeURIComponent(
-    `${track.title} ${track.artist} ${track.animeTitleJapanese || track.animeTitle}`
+    `${track.title} ${track.artist}${includeOrigin && originRaw ? ` ${originRaw}` : ""}`
   );
   return {
     youtubeUrl: `https://www.youtube.com/results?search_query=${q}`,
@@ -91,8 +122,16 @@ export function decodeHtmlEntities(str: string): string {
     .replace(/&amp;/g, "&");
 }
 
-export function isLowQualityMatch(title: string): boolean {
+export function isLowQualityMatch(
+  title: string,
+  options?: { scene?: SceneDomain; themeType?: ThemeType }
+): boolean {
   const lower = title.toLowerCase();
+  const allowInstrumental =
+    options?.scene === "rhythm_doujin" ||
+    options?.themeType === "RHYTHM" ||
+    options?.themeType === "OST";
+
   if (
     lower.includes("nightcore") ||
     lower.includes("sped up") ||
@@ -112,7 +151,6 @@ export function isLowQualityMatch(title: string): boolean {
     lower.includes("joysound") ||
     lower.includes("off vocal") ||
     lower.includes("on vocal") ||
-    lower.includes("instrumental") ||
     lower.includes("ガイドメロディ") ||
     lower.includes("반주") ||
     lower.includes("노래방") ||
@@ -121,7 +159,6 @@ export function isLowQualityMatch(title: string): boolean {
     lower.includes("カラオケ") ||
     lower.includes("オフボーカル") ||
     lower.includes("オフボ") ||
-    lower.includes("インスト") ||
     lower.includes("歌なし") ||
     lower.includes("歌無し") ||
     lower.includes("ボーカルなし") ||
@@ -135,8 +172,6 @@ export function isLowQualityMatch(title: string): boolean {
     lower.includes("tab譜") ||
     lower.includes("music box") ||
     lower.includes("オルゴール") ||
-    lower.includes("8bit") ||
-    lower.includes("chiptune") ||
     lower.includes("8d audio") ||
     lower.includes("#shorts") ||
     lower.includes("視聴動画") ||
@@ -147,10 +182,26 @@ export function isLowQualityMatch(title: string): boolean {
     return true;
   }
 
+  if (
+    !allowInstrumental &&
+    (lower.includes("instrumental") ||
+      lower.includes("インスト") ||
+      lower.includes("8bit") ||
+      lower.includes("chiptune") ||
+      /\binst\.?\b/i.test(title))
+  ) {
+    return true;
+  }
+
   return (
     /\bmr\b/i.test(title) ||
-    /\binst\.?\b/i.test(title) ||
     /\b(piano|guitar|bass|drum|violin|sax|flute|acoustic)\s*covers?\b/i.test(title)
+  );
+}
+
+export function isRhythmGameplayVideo(title: string): boolean {
+  return /手元|ハンドカム|プレイ動画|譜面確認|譜面|chart\s*view|all\s*perfect|full\s*combo|\bpuc\b|\bpfc\b|플레이\s*영상|채보|손캠|핸드캠/i.test(
+    title
   );
 }
 
@@ -168,16 +219,29 @@ export function isCoverMatch(
   channelTitle: string,
   trackTitle: string,
   trackArtist: string,
-  animeName = ""
+  animeName = "",
+  options?: { themeType?: ThemeType }
 ): boolean {
   const combinedTrack = `${trackTitle} ${trackArtist} ${animeName}`;
   const combinedVideo = `${videoTitle} ${channelTitle}`;
 
+  // Always filter AI covers / RVC voice models
   if (
-    !/\bcovers?\b|커버|歌ってみた/i.test(combinedTrack) &&
-    /\bcovers?\b|\bcovered\s+by\b|커버|歌ってみた|aiカバー|ai歌ってみた|ai\s*커버|ai\s*합성|\b(ai\s*cover|rvc)\b|ai[^\s]{1,12}(?:たちの|が歌う)/i.test(
+    !/\bai\b/i.test(combinedTrack) &&
+    /aiカバー|ai歌ってみた|ai\s*커버|ai\s*합성|\b(ai\s*cover|rvc)\b|ai[^\s]{1,12}(?:たちの|が歌う)/i.test(
       combinedVideo
     )
+  ) {
+    return true;
+  }
+
+  if (options?.themeType === "UTAITE") {
+    return false;
+  }
+
+  if (
+    !/\bcovers?\b|커버|歌ってみた/i.test(combinedTrack) &&
+    /\bcovers?\b|\bcovered\s+by\b|커버|歌ってみた/i.test(combinedVideo)
   ) {
     return true;
   }
@@ -340,7 +404,10 @@ export type YouTubeSearchableTrack = Pick<
   | "animeTitleJapanese"
   | "animeTitleRomaji"
   | "themeLabel"
->;
+> & {
+  scene?: SceneDomain;
+  themeType?: ThemeType;
+};
 
 interface CollectedCandidate {
   videoId: string;
@@ -351,6 +418,7 @@ interface CollectedCandidate {
   lowQuality: boolean;
   livePerformance: boolean;
   coverMatch: boolean;
+  rhythmGameplay: boolean;
   topicChannel: boolean;
 }
 
@@ -376,10 +444,22 @@ export async function searchYouTubeTrack(
   const maxCandidates = options?.maxCandidates ?? 8;
   const stopAtGoodCount = options?.stopAtGoodCount ?? 2;
 
+  const isAnime = !track.scene || track.scene === "anime";
   const cleanArtist = cleanSearchText(track.artist);
+  const cleanArtistRomaji = cleanSearchText(track.artistRomaji || "");
   const cleanAnimeJp = cleanSearchText(track.animeTitleJapanese || "");
   const cleanAnimeRomaji = cleanSearchText(track.animeTitleRomaji || "");
-  const animeName = cleanAnimeJp || cleanAnimeRomaji;
+  const rawOriginName = cleanAnimeJp || cleanAnimeRomaji;
+  const animeName =
+    isAnime || !isGenericOriginLabel(rawOriginName) ? rawOriginName : "";
+  const originRomaji =
+    isAnime || !isGenericOriginLabel(cleanAnimeRomaji) ? cleanAnimeRomaji : "";
+
+  const romajiStep = {
+    query: `${track.titleRomaji || track.title} ${cleanArtistRomaji || cleanArtist}`,
+    musicOnly: false,
+    useEmbedFilter: embeddableOnly,
+  };
 
   const searchSteps: Array<{
     query: string;
@@ -391,6 +471,7 @@ export async function searchYouTubeTrack(
       musicOnly: true,
       useEmbedFilter: embeddableOnly,
     },
+    ...(isAnime ? [] : [romajiStep]),
     ...(animeName
       ? [
           {
@@ -400,20 +481,16 @@ export async function searchYouTubeTrack(
           },
         ]
       : []),
-    ...(cleanAnimeRomaji && cleanAnimeRomaji !== animeName
+    ...(originRomaji && originRomaji !== animeName
       ? [
           {
-            query: `${track.titleRomaji || track.title} ${cleanAnimeRomaji}`,
+            query: `${track.titleRomaji || track.title} ${originRomaji}`,
             musicOnly: false,
             useEmbedFilter: embeddableOnly,
           },
         ]
       : []),
-    {
-      query: `${track.titleRomaji || track.title} ${cleanSearchText(track.artistRomaji || "") || cleanArtist}`,
-      musicOnly: false,
-      useEmbedFilter: embeddableOnly,
-    },
+    ...(isAnime ? [romajiStep] : []),
     ...(embeddableOnly
       ? [
           {
@@ -467,15 +544,24 @@ export async function searchYouTubeTrack(
         channelTitle,
         musicOnly: step.musicOnly,
         rankIndex,
-        lowQuality: isLowQualityMatch(title),
+        lowQuality: isLowQualityMatch(title, {
+          scene: track.scene,
+          themeType: track.themeType,
+        }),
         livePerformance: isLivePerformance(title, track.title),
         coverMatch: isCoverMatch(
           title,
           channelTitle,
           track.title,
           track.artist,
-          animeName
+          animeName,
+          { themeType: track.themeType }
         ),
+        rhythmGameplay:
+          (track.scene === "rhythm_doujin" ||
+            track.scene === "vocaloid" ||
+            track.themeType === "RHYTHM") &&
+          isRhythmGameplayVideo(title),
         topicChannel: isTopicChannel(channelTitle),
       });
       newIds.push(videoId);
@@ -490,7 +576,9 @@ export async function searchYouTubeTrack(
 
     // Stop early only when we have enough clean, studio-original, embeddable candidates.
     const goodCount = Array.from(collected.values()).filter((c) => {
-      if (c.lowQuality || c.livePerformance || c.coverMatch) return false;
+      if (c.lowQuality || c.livePerformance || c.coverMatch || c.rhythmGameplay) {
+        return false;
+      }
       if (!embeddableOnly) return true;
       const st = verifiedStatus.get(c.videoId);
       if (st) {
@@ -555,6 +643,9 @@ export async function searchYouTubeTrack(
       }
       if (c.coverMatch) {
         score -= 55;
+      }
+      if (c.rhythmGameplay) {
+        score -= 45;
       }
       if (embeddableOnly) {
         const st = verifiedStatus.get(c.videoId);

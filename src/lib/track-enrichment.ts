@@ -2,7 +2,10 @@ import { enrichTracksWithAniList } from "@/lib/anilist";
 import { mergeKnownTrackLists } from "@/lib/gemini-curator";
 import { getValidYouTubeSession } from "@/lib/oauth";
 import { readUserData, resolveUserAccountKey } from "@/lib/profile-store";
-import { enrichTracksWithYouTube } from "@/lib/youtube";
+import {
+  enrichTracksWithYouTube,
+  getYouTubeThumbnailUrl,
+} from "@/lib/youtube";
 import { getUserKnownTrackKeys } from "@/lib/youtube-cache";
 import type { KnownTrackItem, PlaylistTrack } from "@/types/playlist";
 
@@ -43,14 +46,21 @@ export async function enrichPlaylistTracks(
     enrichTracksWithYouTube(tracks, ytAuth, { knownTracks }),
   ]);
 
-  return tracks.map((track, idx) => ({
-    ...track,
-    coverImage: aniListEnriched[idx]?.coverImage ?? track.coverImage,
-    year: aniListEnriched[idx]?.year ?? track.year,
-    youtubeVideoId: ytEnriched[idx]?.youtubeVideoId ?? track.youtubeVideoId,
-    youtubeCandidateIds:
-      ytEnriched[idx]?.youtubeCandidateIds ?? track.youtubeCandidateIds,
-    youtubeUrl: ytEnriched[idx]?.youtubeUrl ?? track.youtubeUrl,
-    youtubeMusicUrl: ytEnriched[idx]?.youtubeMusicUrl ?? track.youtubeMusicUrl,
-  }));
+  return tracks.map((track, idx) => {
+    const resolvedVideoId =
+      ytEnriched[idx]?.youtubeVideoId ?? track.youtubeVideoId;
+    return {
+      ...track,
+      coverImage:
+        aniListEnriched[idx]?.coverImage ??
+        track.coverImage ??
+        (resolvedVideoId ? getYouTubeThumbnailUrl(resolvedVideoId) : null),
+      year: aniListEnriched[idx]?.year ?? track.year,
+      youtubeVideoId: resolvedVideoId,
+      youtubeCandidateIds:
+        ytEnriched[idx]?.youtubeCandidateIds ?? track.youtubeCandidateIds,
+      youtubeUrl: ytEnriched[idx]?.youtubeUrl ?? track.youtubeUrl,
+      youtubeMusicUrl: ytEnriched[idx]?.youtubeMusicUrl ?? track.youtubeMusicUrl,
+    };
+  });
 }

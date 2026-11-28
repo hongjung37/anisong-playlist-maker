@@ -5,6 +5,7 @@ import {
   isCoverMatch,
   isLivePerformance,
   isLowQualityMatch,
+  isRhythmGameplayVideo,
   isTopicChannel,
   mapWithConcurrency,
   parseIsoDurationSec,
@@ -80,5 +81,78 @@ describe("youtube matching & filtering helpers", () => {
 
     expect(peak).toBeLessThanOrEqual(2);
     expect(outputs).toEqual(["0:40", "1:10", "2:30", "3:5", "4:25", "5:15"]);
+  });
+
+  it("allows instrumental and chiptune only for rhythm_doujin or OST/RHYTHM tracks", () => {
+    expect(isLowQualityMatch("FREEDOM DiVE (Instrumental)")).toBe(true);
+    expect(
+      isLowQualityMatch("FREEDOM DiVE (Instrumental)", { scene: "anime" })
+    ).toBe(true);
+    expect(
+      isLowQualityMatch("You Make My Life 1UP 8bit chiptune", {
+        scene: "rhythm_doujin",
+      })
+    ).toBe(false);
+    expect(
+      isLowQualityMatch("Zoltraak インスト", { themeType: "OST" })
+    ).toBe(false);
+    expect(
+      isLowQualityMatch("Brain Power [Karaoke]", { scene: "rhythm_doujin" })
+    ).toBe(true);
+    expect(
+      isLowQualityMatch("Oshama Scramble! Nightcore", { scene: "rhythm_doujin" })
+    ).toBe(true);
+    expect(
+      isLowQualityMatch("FREEDOM DiVE 1 hour loop", { scene: "rhythm_doujin" })
+    ).toBe(true);
+  });
+
+  it("detects rhythm game gameplay/chart videos while preserving official audio and remixes", () => {
+    expect(isRhythmGameplayVideo("Brain Power [SDVX 譜面確認]")).toBe(true);
+    expect(isRhythmGameplayVideo("Oshama Scramble! 手元 理論値")).toBe(true);
+    expect(isRhythmGameplayVideo("Cyaegha Arcaea All Perfect")).toBe(true);
+    expect(isRhythmGameplayVideo("FREEDOM DiVE 플레이 영상 채보")).toBe(true);
+
+    expect(
+      isRhythmGameplayVideo("かめりあ feat. ななひら - ベースラインやってる？笑 Official Audio")
+    ).toBe(false);
+    expect(isRhythmGameplayVideo("xi - FREEDOM DiVE (BMS BGA)")).toBe(false);
+    expect(isRhythmGameplayVideo("Oshama Scramble! (Long ver.)")).toBe(false);
+    expect(isRhythmGameplayVideo("Song Title (Camellia Remix)")).toBe(false);
+  });
+
+  it("permits human utaite covers only for UTAITE tracks while always blocking AI covers", () => {
+    expect(
+      isCoverMatch(
+        "命に嫌われている。 歌ってみた",
+        "まふまふちゃんねる",
+        "命に嫌われている。",
+        "まふまふ",
+        "",
+        { themeType: "UTAITE" }
+      )
+    ).toBe(false);
+
+    expect(
+      isCoverMatch(
+        "メルト cover",
+        "Utaite Ch",
+        "メルト",
+        "supercell",
+        "",
+        { themeType: "VOCALOID" }
+      )
+    ).toBe(true);
+
+    expect(
+      isCoverMatch(
+        "命に嫌われている。 AIカバー",
+        "AIChannel",
+        "命に嫌われている。",
+        "まふまふ",
+        "",
+        { themeType: "UTAITE" }
+      )
+    ).toBe(true);
   });
 });

@@ -13,6 +13,20 @@ const ResolveSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1),
+        scene: z.enum(["anime", "vocaloid", "rhythm_doujin"]).optional(),
+        themeType: z
+          .enum([
+            "OP",
+            "ED",
+            "OST",
+            "INSERT",
+            "CHARACTER",
+            "VOCALOID",
+            "UTAITE",
+            "RHYTHM",
+            "DOUJIN",
+          ])
+          .optional(),
         title: z.string().min(1),
         titleRomaji: z.string().optional().default(""),
         artist: z.string().min(1),

@@ -15,6 +15,7 @@ const KnownTrackSchema = z.object({
     artistRomaji: z.string().optional(),
     animeTitle: z.string().optional(),
     youtubeVideoId: z.string().nullable().optional(),
+    scene: z.enum(["anime", "vocaloid", "rhythm_doujin"]).optional(),
   }),
   known: z.boolean(),
 });
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
       channelTitle: track.artist,
       videoId,
       sourceName: "수동 등록",
+      ...(track.scene ? { scene: track.scene } : {}),
     };
 
     const [updated] = await Promise.all([

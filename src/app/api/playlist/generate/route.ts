@@ -8,7 +8,10 @@ import {
   resolveUserAccountKey,
   saveUserLastPlaylist,
 } from "@/lib/profile-store";
-import { enrichTracksWithYouTube } from "@/lib/youtube";
+import {
+  enrichTracksWithYouTube,
+  getYouTubeThumbnailUrl,
+} from "@/lib/youtube";
 import { getUserKnownTrackKeys } from "@/lib/youtube-cache";
 import { readWatchedAnime } from "@/lib/watched-anime-store";
 import type {
@@ -46,6 +49,7 @@ function collectExcludedRecentTracks(
         artist: track.artist,
         artistRomaji: track.artistRomaji,
         animeTitle: track.animeTitle,
+        scene: track.scene,
       });
     }
   }
@@ -54,11 +58,32 @@ function collectExcludedRecentTracks(
 }
 
 const RequestSchema = z.object({
+  scenes: z
+    .array(z.enum(["anime", "vocaloid", "rhythm_doujin"]))
+    .min(1)
+    .optional()
+    .default(["anime"]),
+  vocaloidVocalMode: z
+    .enum(["original_only", "allow_covers", "covers_focus"])
+    .optional()
+    .default("original_only"),
   seeds: z.array(z.string()).default([]),
   moods: z.array(z.string()).default([]),
   genres: z.array(z.string()).default([]),
   themeTypes: z
-    .array(z.enum(["OP", "ED", "OST", "INSERT", "CHARACTER"]))
+    .array(
+      z.enum([
+        "OP",
+        "ED",
+        "OST",
+        "INSERT",
+        "CHARACTER",
+        "VOCALOID",
+        "UTAITE",
+        "RHYTHM",
+        "DOUJIN",
+      ])
+    )
     .default(["OP", "ED", "INSERT"]),
   era: z.enum(["ALL", "2020s", "2010s", "2000s", "classic"]).default("ALL"),
   trackCount: z.number().int().min(5).max(25).default(12),
@@ -137,9 +162,12 @@ async function runGeneratePipeline(
   const effectivePopularity =
     input.popularityLevel ?? (input.includeHiddenGems ? 3 : 2);
 
+  const isAnimeOnly =
+    input.scenes.length === 1 && input.scenes[0] === "anime";
+
   const [userKnownKeys, watchedAnime] = await Promise.all([
     getUserKnownTrackKeys(accountKey),
-    input.watchedAnimeMode !== "ignore"
+    input.scenes.includes("anime") && input.watchedAnimeMode !== "ignore"
       ? readWatchedAnime()
       : Promise.resolve([]),
   ]);
@@ -147,11 +175,15 @@ async function runGeneratePipeline(
 
   emitProgress?.({
     stage: "curating",
-    message: "AI 큐레이터가 애니송 셋리를 선곡 중입니다",
+    message: isAnimeOnly
+      ? "AI 큐레이터가 애니송 셋리를 선곡 중입니다"
+      : "AI 큐레이터가 선택된 씬의 셋리를 선곡 중입니다",
     detail:
       excludedRecentTracks.length > 0
         ? `최근 생성 ${excludedRecentTracks.length}곡 중복 제외 적용`
-        : "작품 맥락·사운드·셋리 아크 설계 중",
+        : isAnimeOnly
+          ? "작품 맥락·사운드·셋리 아크 설계 중"
+          : "씬별 맥락·사운드 결·셋리 아크 설계 중",
     percent: 32,
   });
 
@@ -171,7 +203,7 @@ async function runGeneratePipeline(
 
   emitProgress?.({
     stage: "enriching_anilist",
-    message: `${playlist.tracks.length}곡 선곡 완료 · 작품 커버와 YouTube 영상을 매칭 중입니다`,
+    message: `${playlist.tracks.length}곡 선곡 완료 · 출처 커버와 YouTube 영상을 매칭 중입니다`,
     detail: playlist.title,
     percent: 65,
   });
@@ -192,7 +224,7 @@ async function runGeneratePipeline(
     (res) => {
       emitProgress?.({
         stage: "enriching_youtube",
-        message: "AniList 작품 메타 매칭 완료 · YouTube 캐시/영상 확인 중입니다",
+        message: "출처·커버 메타 매칭 완료 · YouTube 캐시/영상 확인 중입니다",
         detail: "재생 가능한 공식 음원 우선 매칭",
         percent: 82,
       });
@@ -208,16 +240,23 @@ async function runGeneratePipeline(
     ytPromise,
   ]);
 
-  const mergedTracks = playlist.tracks.map((track, idx) => ({
-    ...track,
-    coverImage: aniListEnriched[idx]?.coverImage ?? track.coverImage,
-    year: aniListEnriched[idx]?.year ?? track.year,
-    youtubeVideoId: ytEnriched[idx]?.youtubeVideoId ?? track.youtubeVideoId,
-    youtubeCandidateIds:
-      ytEnriched[idx]?.youtubeCandidateIds ?? track.youtubeCandidateIds,
-    youtubeUrl: ytEnriched[idx]?.youtubeUrl ?? track.youtubeUrl,
-    youtubeMusicUrl: ytEnriched[idx]?.youtubeMusicUrl ?? track.youtubeMusicUrl,
-  }));
+  const mergedTracks = playlist.tracks.map((track, idx) => {
+    const resolvedVideoId =
+      ytEnriched[idx]?.youtubeVideoId ?? track.youtubeVideoId;
+    return {
+      ...track,
+      coverImage:
+        aniListEnriched[idx]?.coverImage ??
+        track.coverImage ??
+        (resolvedVideoId ? getYouTubeThumbnailUrl(resolvedVideoId) : null),
+      year: aniListEnriched[idx]?.year ?? track.year,
+      youtubeVideoId: resolvedVideoId,
+      youtubeCandidateIds:
+        ytEnriched[idx]?.youtubeCandidateIds ?? track.youtubeCandidateIds,
+      youtubeUrl: ytEnriched[idx]?.youtubeUrl ?? track.youtubeUrl,
+      youtubeMusicUrl: ytEnriched[idx]?.youtubeMusicUrl ?? track.youtubeMusicUrl,
+    };
+  });
 
   const finalPlaylist: GeneratedPlaylist = {
     ...playlist,
